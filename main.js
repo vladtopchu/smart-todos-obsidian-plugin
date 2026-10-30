@@ -262,10 +262,31 @@ var ObsidianStorage = class {
     await this.parents(to);
     await this.app.fileManager.renameFile(this.file(from), (0, import_obsidian.normalizePath)(to));
   }
+  async trash(path) {
+    await this.app.vault.trash(this.file(path), false);
+  }
 };
 
 // src/store.ts
 init_ids();
+
+// src/labels.ts
+var LABEL_COLORS = { gray: "\u0421\u0435\u0440\u044B\u0439", red: "\u041A\u0440\u0430\u0441\u043D\u044B\u0439", orange: "\u041E\u0440\u0430\u043D\u0436\u0435\u0432\u044B\u0439", green: "\u0417\u0435\u043B\u0451\u043D\u044B\u0439", blue: "\u0421\u0438\u043D\u0438\u0439", purple: "\u0424\u0438\u043E\u043B\u0435\u0442\u043E\u0432\u044B\u0439" };
+function normalizeLabels(value) {
+  if (!Array.isArray(value)) return [];
+  const seen = /* @__PURE__ */ new Set();
+  const labels = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || typeof item.name !== "string") continue;
+    const name = item.name.replace(/[\r\n]+/g, " ").trim().slice(0, 60);
+    if (!name || seen.has(name.toLocaleLowerCase())) continue;
+    seen.add(name.toLocaleLowerCase());
+    labels.push({ name, color: Object.hasOwn(LABEL_COLORS, item.color) ? item.color : "gray" });
+  }
+  return labels;
+}
+
+// src/store.ts
 var TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- dayline:task -->[ \t]*$/m;
 var str = (v, fallback = "") => typeof v === "string" ? v : fallback;
 var pick = (v, options, fallback) => options.includes(v) ? v : fallback;
@@ -312,7 +333,7 @@ ${doc.body}`;
     if (!validDate(d.scheduled)) throw new Error("\u041D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u0430\u044F \u0434\u0430\u0442\u0430 \u0437\u0430\u0434\u0430\u0447\u0438");
     const line = TASK_LINE.exec(doc.body);
     const status = line ? line[1].toLowerCase() === "x" ? "done" : line[1] === "-" ? "cancelled" : "open" : pick(d.status, ["open", "done", "cancelled"], "open");
-    const history = Array.isArray(d.history) ? d.history.filter((h) => !!h && typeof h === "object" && validDate(h.date) && ["moved", "completed", "reopened"].includes(h.type)) : [];
+    const history = Array.isArray(d.history) ? d.history.filter((h) => !!h && typeof h === "object" && validDate(h.date) && ["moved", "completed", "reopened", "cancelled"].includes(h.type)) : [];
     return {
       id: str(d.id),
       path,
@@ -323,6 +344,7 @@ ${doc.body}`;
       priority: pick(d.priority, ["normal", "high", "low"], "normal"),
       recurrence: pick(d.recurrence, ["none", "daily", "weekdays", "weekly", "monthly"], "none"),
       goal: str(d.goal),
+      labels: normalizeLabels(d.labels),
       due: validDate(d.due) ? d.due : "",
       created: validDate(d.created) ? d.created : d.scheduled,
       completed: status === "done" ? validDate(d.completed) ? d.completed : d.scheduled : "",
@@ -367,7 +389,7 @@ ${doc.body}`;
       var _a, _b, _c, _d, _e, _f, _g;
       const id = newId();
       const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: "dayline-task", id, title, status: "open", scheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", goal: (_d = input2.goal) != null ? _d : "", due: (_e = input2.due) != null ? _e : "", created: this.now(), completed: "", history: [] };
+      const data = { type: "dayline-task", id, title, status: "open", scheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", goal: (_d = input2.goal) != null ? _d : "", labels: normalizeLabels(input2.labels), due: (_e = input2.due) != null ? _e : "", created: this.now(), completed: "", history: [] };
       await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- dayline:task -->
 
 ${(_g = (_f = input2.description) == null ? void 0 : _f.trim()) != null ? _g : ""}
@@ -380,6 +402,7 @@ ${(_g = (_f = input2.description) == null ? void 0 : _f.trim()) != null ? _g : "
       const doc = this.decode(text);
       const current = this.task(doc, path);
       const patch = update(current);
+      if (patch.labels !== void 0) patch.labels = normalizeLabels(patch.labels);
       if (!Object.keys(patch).length) return text;
       const next = { ...current, ...patch };
       if (!singleLine(next.title) || !validDate(next.scheduled) || next.due && !validDate(next.due)) throw new Error("\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438 \u0434\u0430\u0442\u044B");
@@ -409,8 +432,17 @@ ${doc.body}`;
         if (task.scheduled > today || task.history.some((h) => h.type === "completed" && h.date === today)) return {};
         return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: "open", completed: "", history: [...task.history, { type: "completed", date: today, from: task.scheduled }] };
       }
-      return { status, completed: status === "done" ? today : "", history: [...task.history, { type: status === "done" ? "completed" : "reopened", date: today }] };
+      return { status, completed: status === "done" ? today : "", history: [...task.history, { type: status === "done" ? "completed" : status === "cancelled" ? "cancelled" : "reopened", date: today }] };
     }));
+  }
+  deleteTask(path) {
+    return this.serial(async () => {
+      const prefix = `${this.settings.root}/tasks/`;
+      if (!path.startsWith(prefix) || !/^[^/\\]+\.md$/.test(path.slice(prefix.length)) || path.slice(prefix.length).startsWith(".")) throw new Error("\u0423\u0434\u0430\u043B\u044F\u0442\u044C \u043C\u043E\u0436\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u0444\u0430\u0439\u043B\u044B \u0437\u0430\u0434\u0430\u0447 Dayline");
+      const doc = this.decode(await this.storage.read(path));
+      if (doc.data.type !== "dayline-task") throw new Error("\u042D\u0442\u043E\u0442 \u0444\u0430\u0439\u043B \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0437\u0430\u0434\u0430\u0447\u0435\u0439 Dayline");
+      await this.storage.trash(path);
+    });
   }
   async rollover() {
     if (!this.settings.autoRollover) return 0;
@@ -539,7 +571,7 @@ period: "${periodKey(scope, date)}"
 };
 
 // src/types.ts
-var DEFAULT_SETTINGS = { root: "_todotracking", autoRollover: true, showCompleted: true };
+var DEFAULT_SETTINGS = { root: "_todotracking", autoRollover: true, showCompleted: true, tasksOnly: false };
 
 // src/ui/dom.ts
 function el(tag, className = "", text) {
@@ -558,6 +590,9 @@ function button(label, onClick, className = "", iconName) {
   return node;
 }
 var paths = {
+  stats: "M4 20V10h4v10M10 20V4h4v16m2 0V8h4v12M2 20h20",
+  focus: "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8h8v8H8z",
+  trash: "M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7",
   sun: "M12 3v1m0 16v1M3 12h1m16 0h1M5.6 5.6l.7.7m11.4 11.4.7.7M5.6 18.4l.7-.7M17.7 6.3l.7-.7M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
   calendar: "M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2",
   week: "M4 4h16v16H4zM4 9h16M9 9v11M15 9v11",
@@ -658,6 +693,7 @@ var Dashboard = class {
     __publicField(this, "query", "");
     __publicField(this, "draft", "");
     __publicField(this, "calendarOpen", false);
+    __publicField(this, "statsScope", "week");
     __publicField(this, "generation", 0);
     __publicField(this, "disposed", false);
     root.classList.add("dl-app");
@@ -666,6 +702,9 @@ var Dashboard = class {
     this.disposed = true;
     this.generation++;
     this.root.replaceChildren();
+  }
+  isTasksOnlyMode() {
+    return this.root.classList.contains("dl-tasks-only");
   }
   async refresh() {
     const generation = ++this.generation;
@@ -693,37 +732,31 @@ var Dashboard = class {
     }
   }
   render() {
-    var _a, _b;
+    var _a, _b, _c, _d;
     const active = document.activeElement;
     const focused = active && this.root.contains(active) ? active.dataset.focus : void 0;
     const selection = focused && ((active == null ? void 0 : active.type) === "text" || (active == null ? void 0 : active.type) === "search") ? [active.selectionStart, active.selectionEnd] : void 0;
     this.root.replaceChildren();
+    this.root.classList.toggle("dl-tasks-only", this.store.settings.tasksOnly && !["goals", "habits", "stats"].includes(this.screen));
+    (_b = (_a = this.host).setTasksOnly) == null ? void 0 : _b.call(_a, this.isTasksOnlyMode());
     const layout = el("div", "dl-layout");
     layout.append(this.sidebar(), this.main());
     this.root.append(layout);
+    if (this.root.classList.contains("dl-tasks-only")) this.root.append(button("\u041F\u043E\u043A\u0430\u0437\u0430\u0442\u044C \u043F\u0430\u043D\u0435\u043B\u0438", () => this.togglePanels(), "dl-button dl-focus-exit", "focus"));
     if (focused) {
       const element = this.root.querySelector(`[data-focus="${focused}"]`);
       element == null ? void 0 : element.focus();
-      if (selection) element == null ? void 0 : element.setSelectionRange((_a = selection[0]) != null ? _a : 0, (_b = selection[1]) != null ? _b : 0);
+      if (selection) element == null ? void 0 : element.setSelectionRange((_c = selection[0]) != null ? _c : 0, (_d = selection[1]) != null ? _d : 0);
     }
   }
   sidebar() {
     const side = el("aside", "dl-sidebar");
-    const brand = el("div", "dl-brand");
-    const mark = el("div", "dl-brand-mark");
-    mark.append(icon("sun"));
-    brand.append(mark, el("span", "", "dayline"));
-    side.append(brand);
     const nav = el("nav", "dl-nav");
     nav.setAttribute("aria-label", "\u0420\u0430\u0437\u0434\u0435\u043B\u044B \u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0449\u0438\u043A\u0430");
-    const items = [["day", "\u041C\u043E\u0439 \u0434\u0435\u043D\u044C", "sun"], ["week", "\u041D\u0435\u0434\u0435\u043B\u044F", "week"], ["month", "\u041C\u0435\u0441\u044F\u0446", "month"], ["year", "\u0413\u043E\u0434", "year"], ["goals", "\u0426\u0435\u043B\u0438", "target"], ["habits", "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", "leaf"]];
+    const items = [["day", "\u041C\u043E\u0439 \u0434\u0435\u043D\u044C", "sun"], ["week", "\u041D\u0435\u0434\u0435\u043B\u044F", "week"], ["month", "\u041C\u0435\u0441\u044F\u0446", "month"], ["year", "\u0413\u043E\u0434", "year"], ["goals", "\u0426\u0435\u043B\u0438", "target"], ["habits", "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", "leaf"], ["stats", "\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0430", "stats"]];
     for (const [screen, label, glyph] of items) {
       const item = button(label, () => this.navigate(screen), `dl-nav-item ${this.screen === screen ? "is-active" : ""}`, glyph);
       if (this.screen === screen) item.setAttribute("aria-current", "page");
-      if (screen === "day") {
-        const count = this.data.tasks.filter((t) => t.status === "open" && t.scope === "day" && t.scheduled === dateKey()).length;
-        if (count) item.append(el("small", "dl-nav-count", String(count)));
-      }
       nav.append(item);
     }
     side.append(nav, this.calendar());
@@ -757,7 +790,7 @@ var Dashboard = class {
       const node = button(String(parseDate(date).getDate()), () => {
         this.selected = date;
         this.calendarMonth = date.slice(0, 7) + "-01";
-        if (["goals", "habits"].includes(this.screen)) this.screen = "day";
+        if (["goals", "habits", "stats"].includes(this.screen)) this.screen = "day";
         this.render();
       }, `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? "is-outside" : ""} ${date === this.selected ? "is-selected" : ""} ${date === dateKey() ? "is-today" : ""} ${busy.has(date) ? "has-tasks" : ""}`);
       node.setAttribute("aria-label", displayDate(date, { day: "numeric", month: "long", year: "numeric" }));
@@ -772,12 +805,13 @@ var Dashboard = class {
     const main = el("main", "dl-main");
     const top = el("div", "dl-topbar");
     const crumb = el("div", "dl-breadcrumb");
-    crumb.append(icon("calendar"), el("span", "", "Dayline"), el("span", "dl-divider", "/"), el("strong", "", this.screen === "goals" ? "\u0426\u0435\u043B\u0438" : this.screen === "habits" ? "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438" : SCOPES[this.screen]));
+    crumb.append(icon("calendar"), el("strong", "", this.screen === "goals" ? "\u0426\u0435\u043B\u0438" : this.screen === "habits" ? "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438" : this.screen === "stats" ? "\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0430" : SCOPES[this.screen]));
     const topButtons = el("div", "dl-inline");
     topButtons.append(button("\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C", () => {
       this.calendarOpen = !this.calendarOpen;
       this.render();
     }, "dl-icon-button dl-calendar-toggle", "calendar"), button("\u0421\u0435\u0433\u043E\u0434\u043D\u044F", () => this.navigate("day", dateKey()), "dl-button dl-button-quiet"));
+    if (!["goals", "habits", "stats"].includes(this.screen)) topButtons.append(button("\u0422\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0434\u0430\u0447\u0438", () => this.togglePanels(), "dl-button dl-button-quiet", "focus"));
     top.append(crumb, topButtons);
     main.append(top);
     const content = el("div", "dl-content");
@@ -788,6 +822,7 @@ var Dashboard = class {
     }
     if (this.screen === "goals") content.append(this.goalsPage());
     else if (this.screen === "habits") content.append(this.habitsPage());
+    else if (this.screen === "stats") content.append(this.statsPage());
     else content.append(this.plannerPage(this.screen));
     main.append(content);
     return main;
@@ -831,26 +866,12 @@ var Dashboard = class {
     timeline.append(button("\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => this.navigate(scope, stepPeriod(this.selected, scope, 1)), "dl-icon-button", "right"));
     page.append(timeline);
     const tasks = this.periodTasks(scope);
-    const done = tasks.filter((t) => t.status === "done").length;
-    const stats = el("div", "dl-stats");
-    const stat = (label, value, suffix = "") => {
-      const card = el("div", "dl-stat");
-      card.append(el("span", "dl-stat-label", label));
-      const number = el("div", "dl-stat-number");
-      number.append(el("strong", "", value));
-      if (suffix) number.append(el("span", "", suffix));
-      card.append(number);
-      return card;
-    };
-    stats.append(stat("\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", String(tasks.filter((t) => t.status === "open").length)), stat("\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E", String(done), `\u0438\u0437 ${tasks.length}`));
     const habits = this.data.habits.filter((h) => !h.archived && habitDue(h.days, this.selected) && h.created <= this.selected);
-    stats.append(stat("\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", `${habits.filter((h) => h.completions.includes(this.selected)).length}/${habits.length}`));
-    page.append(stats);
     const columns = el("div", "dl-columns");
     const taskColumn = el("section", "dl-task-panel");
     const taskHeader = el("div", "dl-section-header");
     const heading = el("div", "dl-inline");
-    heading.append(el("h2", "", scope === "day" ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u0434\u043D\u044F" : "\u041F\u043B\u0430\u043D\u044B \u0438 \u0437\u0430\u0434\u0430\u0447\u0438"), el("span", "dl-count", String(tasks.length)));
+    heading.append(el("h2", "", scope === "day" ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u0434\u043D\u044F" : "\u041F\u043B\u0430\u043D\u044B \u0438 \u0437\u0430\u0434\u0430\u0447\u0438"));
     const search = input(this.query, "search", "\u041D\u0430\u0439\u0442\u0438 \u0437\u0430\u0434\u0430\u0447\u0443");
     search.dataset.focus = "search";
     search.setAttribute("aria-label", "\u041D\u0430\u0439\u0442\u0438 \u0437\u0430\u0434\u0430\u0447\u0443");
@@ -871,7 +892,7 @@ var Dashboard = class {
       tabs.append(tab);
     }
     taskColumn.append(tabs, this.quickAdd());
-    const visible = tasks.filter((t) => (this.filter === "all" ? this.store.settings.showCompleted || t.status === "open" : t.status === this.filter) && `${t.title} ${t.description}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
+    const visible = tasks.filter((t) => (this.filter === "all" ? this.store.settings.showCompleted || t.status === "open" : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map((label) => label.name).join(" ")}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
     const overdue = scope === "day" ? this.data.tasks.filter((t) => t.status === "open" && t.scope === "day" && t.scheduled < this.selected && this.selected <= dateKey()) : [];
     if (overdue.length && !this.query && this.filter !== "done") {
       const banner = el("div", "dl-overdue-banner");
@@ -891,16 +912,6 @@ var Dashboard = class {
       sorted.forEach((task) => list.append(this.taskRow(task, scope !== "day")));
       taskColumn.append(list);
     }
-    const completedOccurrences = this.data.tasks.flatMap((t) => t.recurrence !== "none" ? t.history.filter((h) => h.type === "completed" && inPeriod(h.date, scope, this.selected)).map((h) => ({ title: t.title, date: h.date })) : []);
-    if (completedOccurrences.length && this.filter !== "open" && !this.query) {
-      const history = el("details", "dl-occurrences");
-      history.append(el("summary", "", `\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u043F\u043E\u0432\u0442\u043E\u0440\u044B \xB7 ${completedOccurrences.length}`));
-      completedOccurrences.forEach((h) => history.append(el("p", "", `\u2713 ${h.title} \xB7 ${displayDate(h.date)}`)));
-      taskColumn.append(history);
-    }
-    const progress = el("div", "dl-task-progress");
-    progress.append(meter(tasks.length ? done / tasks.length * 100 : 0), el("span", "", `${done} \u0438\u0437 ${tasks.length} \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E`));
-    taskColumn.append(progress);
     const rail = el("aside", "dl-context-rail");
     rail.append(this.dailyHabits(habits));
     if (scope === "day") rail.append(this.weekFocus());
@@ -959,6 +970,7 @@ var Dashboard = class {
     const body = el("div", "dl-task-body");
     body.append(button(task.title, () => this.taskDialog(task), "dl-task-title"));
     const metadata = el("div", "dl-task-meta");
+    task.labels.forEach((label) => metadata.append(el("span", `dl-label dl-label-${label.color}`, label.name)));
     if (task.priority === "high") metadata.append(el("span", "dl-tag dl-tag-priority", "\u2191 \u0412\u044B\u0441\u043E\u043A\u0438\u0439 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442"));
     if (task.priority === "low") metadata.append(el("span", "dl-tag", "\u2193 \u041D\u0438\u0437\u043A\u0438\u0439 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442"));
     const goal = this.data.goals.find((g) => g.id === task.goal);
@@ -1003,7 +1015,10 @@ var Dashboard = class {
       }, "dl-button", "file"), button("\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443", () => {
         close();
         void this.action(() => this.store.setTaskStatus(task.path, "cancelled"), "\u0417\u0430\u0434\u0430\u0447\u0430 \u043E\u0442\u043C\u0435\u043D\u0435\u043D\u0430. \u0424\u0430\u0439\u043B \u0438 \u0438\u0441\u0442\u043E\u0440\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B.");
-      }, "dl-button dl-danger", "close"));
+      }, "dl-button", "close"), button("\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443", () => {
+        close();
+        void this.action(() => this.store.deleteTask(task.path), "\u0417\u0430\u0434\u0430\u0447\u0430 \u0443\u0434\u0430\u043B\u0435\u043D\u0430. \u0424\u0430\u0439\u043B \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0451\u043D \u0432 .trash.");
+      }, "dl-button dl-danger", "trash"));
       body.append(actions);
     });
   }
@@ -1025,7 +1040,6 @@ var Dashboard = class {
       row.setAttribute("aria-pressed", String(done));
       box.append(row);
     }
-    if (habits.length) box.append(meter(habits.filter((h) => h.completions.includes(this.selected)).length / habits.length * 100, "dl-habit-meter"));
     return box;
   }
   weekFocus() {
@@ -1059,17 +1073,11 @@ var Dashboard = class {
     const grid = el("div", "dl-goal-grid");
     for (const goal of goals) {
       const tasks = this.data.tasks.filter((t) => t.goal === goal.id && t.status !== "cancelled");
-      const done = tasks.filter((t) => t.status === "done").length;
-      const progress = tasks.length ? done / tasks.length * 100 : 0;
       const card = el("section", `dl-goal-card ${goal.status === "done" ? "is-done" : ""}`);
       const top = el("div", "dl-section-header");
       top.append(el("span", "dl-goal-state", goal.status === "done" ? "\u0414\u043E\u0441\u0442\u0438\u0433\u043D\u0443\u0442\u0430" : "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435"), button("\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0446\u0435\u043B\u044C", () => this.goalDialog(goal), "dl-icon-button", "dots"));
       card.append(top, el("h2", "", goal.title));
       if (goal.description) card.append(el("p", "dl-goal-description", goal.description));
-      card.append(meter(goal.status === "done" ? 100 : progress));
-      const numbers = el("div", "dl-goal-numbers");
-      numbers.append(el("strong", "", `${goal.status === "done" ? 100 : Math.round(progress)}%`), el("span", "", `${done} \u0438\u0437 ${tasks.length} \u0437\u0430\u0434\u0430\u0447`));
-      card.append(numbers);
       if (goal.target) card.append(el("p", `dl-goal-date ${goal.target < dateKey() && goal.status === "active" ? "dl-late" : ""}`, `\u0421\u0440\u043E\u043A: ${displayDate(goal.target, { day: "numeric", month: "long", year: "numeric" })}`));
       if (tasks.length) {
         const linked = el("details", "dl-linked-tasks");
@@ -1107,7 +1115,6 @@ var Dashboard = class {
       th.append(el("span", "", WEEKDAYS[i]), el("strong", "", String(parseDate(date).getDate())));
       head.append(th);
     });
-    head.append(el("th", "", "\u0421\u0435\u0440\u0438\u044F"));
     thead.append(head);
     table.append(thead);
     const tbody = el("tbody");
@@ -1129,33 +1136,98 @@ var Dashboard = class {
         cell.append(toggle);
         row.append(cell);
       }
-      const streak = el("td", "dl-streak", `${habitStreak(habit.days, habit.completions, dateKey(), habit.created)} \u0434\u043D.`);
-      row.append(streak);
       tbody.append(row);
     }
     table.append(tbody);
     tableWrap.append(table);
     if (habits.length) page.append(tableWrap);
+    return page;
+  }
+  togglePanels() {
+    var _a, _b;
+    this.store.settings.tasksOnly = !this.store.settings.tasksOnly;
+    this.render();
+    void ((_b = (_a = this.host).persistSettings) == null ? void 0 : _b.call(_a).catch((error) => this.host.notify(String(error))));
+  }
+  statsPage() {
+    const page = el("div", "dl-statistics");
+    page.append(this.pageHeader("", "\u0421\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0430", "", []));
+    const scope = select(SCOPES, this.statsScope);
+    scope.setAttribute("aria-label", "\u041F\u0435\u0440\u0438\u043E\u0434 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0438");
+    scope.onchange = () => {
+      this.statsScope = scope.value;
+      this.render();
+    };
+    const controls = el("div", "dl-stat-controls");
+    controls.append(scope, button("\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => {
+      this.selected = stepPeriod(this.selected, this.statsScope, -1);
+      this.render();
+    }, "dl-icon-button", "left"), input(this.selected, "date"), button("\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => {
+      this.selected = stepPeriod(this.selected, this.statsScope, 1);
+      this.render();
+    }, "dl-icon-button", "right"));
+    const date = controls.querySelector("input");
+    date.setAttribute("aria-label", "\u0414\u0430\u0442\u0430 \u0441\u0442\u0430\u0442\u0438\u0441\u0442\u0438\u043A\u0438");
+    date.onchange = () => {
+      if (date.value) {
+        this.selected = date.value;
+        this.render();
+      }
+    };
+    page.append(controls, el("p", "dl-subtitle", `\u041F\u0435\u0440\u0438\u043E\u0434: ${periodKey(this.statsScope, this.selected)}`));
+    const inRange = (date2) => !!date2 && inPeriod(date2, this.statsScope, this.selected);
+    const planned = this.data.tasks.filter((t) => inRange(t.scheduled) && t.status !== "cancelled");
+    const completed = this.data.tasks.reduce((n, t) => n + (t.recurrence === "none" ? Number(t.status === "done" && inRange(t.completed)) : t.history.filter((h) => h.type === "completed" && inRange(h.date)).length), 0);
+    const moved = this.data.tasks.reduce((n, t) => n + t.history.filter((h) => h.type === "moved" && inRange(h.date)).length, 0);
+    const stats = el("div", "dl-stats");
+    for (const [label, value] of [["\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", planned.filter((t) => t.status === "open").length], ["\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434", completed], ["\u041F\u0435\u0440\u0435\u043D\u043E\u0441\u043E\u0432", moved]]) {
+      const stat = el("div", "dl-stat");
+      stat.append(el("span", "dl-stat-label", label), el("strong", "dl-stat-value", String(value)));
+      stats.append(stat);
+    }
+    page.append(stats);
+    const goals = el("section", "dl-card dl-stat-section");
+    goals.append(el("h2", "", "\u041F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0446\u0435\u043B\u0435\u0439"));
+    for (const goal of this.data.goals.filter((g) => g.status !== "archived")) {
+      const tasks = this.data.tasks.filter((t) => t.goal === goal.id && t.status !== "cancelled");
+      const done = tasks.filter((t) => t.status === "done").length;
+      const row = el("div", "dl-stat-row");
+      row.append(el("span", "", goal.title), el("span", "", `${done} \u0438\u0437 ${tasks.length}`), meter(goal.status === "done" ? 100 : tasks.length ? done / tasks.length * 100 : 0));
+      goals.append(row);
+    }
+    if (goals.childElementCount === 1) goals.append(el("p", "dl-subtitle", "\u041D\u0435\u0442 \u0446\u0435\u043B\u0435\u0439."));
+    page.append(goals);
+    const habits = this.data.habits.filter((h) => !h.archived);
+    const habitStats = el("section", "dl-card dl-stat-section");
+    habitStats.append(el("h2", "", "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438"));
+    for (const habit of habits) {
+      const row = el("div", "dl-stat-row");
+      row.append(el("span", "", habit.title), el("span", "", `${habit.completions.filter(inRange).length} \u043E\u0442\u043C\u0435\u0442\u043E\u043A \xB7 \u0441\u0435\u0440\u0438\u044F \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F: ${habitStreak(habit.days, habit.completions, dateKey(), habit.created)} \u0434\u043D.`));
+      habitStats.append(row);
+    }
+    if (!habits.length) habitStats.append(el("p", "dl-subtitle", "\u041D\u0435\u0442 \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A."));
+    page.append(habitStats);
     const history = el("section", "dl-card dl-history");
     history.append(el("h2", "", "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430 12 \u043D\u0435\u0434\u0435\u043B\u044C"));
     const heatmap = el("div", "dl-heatmap");
     for (let offset = -83; offset <= 0; offset++) {
-      const date = shiftDay(dateKey(), offset);
-      const available = habits.filter((h) => h.created <= date && habitDue(h.days, date));
-      const n = available.filter((h) => h.completions.includes(date)).length;
+      const date2 = shiftDay(dateKey(), offset);
+      const available = habits.filter((h) => h.created <= date2 && habitDue(h.days, date2));
+      const n = available.filter((h) => h.completions.includes(date2)).length;
       const level = !available.length || !n ? 0 : n === available.length ? 3 : n / available.length >= 0.5 ? 2 : 1;
-      const cell = button(`${displayDate(date)}: ${n} \u0438\u0437 ${available.length} \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A`, () => this.navigate("day", date), `dl-heat-cell dl-heat-${level}`);
+      const cell = button(`${displayDate(date2)}: ${n} \u0438\u0437 ${available.length} \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A`, () => this.navigate("day", date2), `dl-heat-cell dl-heat-${level}`);
       cell.replaceChildren();
       cell.title = cell.getAttribute("aria-label");
       heatmap.append(cell);
     }
-    history.append(heatmap, el("p", "dl-card-subtitle", "\u0421\u0435\u0440\u0438\u044F \u0443\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442 \u0434\u043D\u0438 \u043F\u043E \u0440\u0430\u0441\u043F\u0438\u0441\u0430\u043D\u0438\u044E. \u0427\u0435\u043C \u043D\u0430\u0441\u044B\u0449\u0435\u043D\u043D\u0435\u0435 \u0446\u0432\u0435\u0442, \u0442\u0435\u043C \u0431\u043E\u043B\u044C\u0448\u0435 \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E."));
-    if (habits.length) page.append(history);
+    history.append(heatmap);
+    page.append(history);
+    page.append(el("p", "dl-subtitle", "\u0421\u0432\u043E\u0434\u043A\u0430 \u0437\u0430\u0434\u0430\u0447 \u0438 \u043E\u0442\u043C\u0435\u0442\u043E\u043A \u2014 \u0437\u0430 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0439 \u043F\u0435\u0440\u0438\u043E\u0434. \u041F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0446\u0435\u043B\u0435\u0439 \u2014 \u0437\u0430 \u0432\u0441\u0451 \u0432\u0440\u0435\u043C\u044F. \u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A \u2014 \u0437\u0430 \u043F\u043E\u0441\u043B\u0435\u0434\u043D\u0438\u0435 12 \u043D\u0435\u0434\u0435\u043B\u044C. \u0414\u0430\u0442\u044B \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u044F \u0437\u0430\u0434\u0430\u0447, \u043E\u0442\u043C\u0435\u0447\u0435\u043D\u043D\u044B\u0445 \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u0432 Markdown, \u043C\u043E\u0433\u0443\u0442 \u0431\u044B\u0442\u044C \u043D\u0435\u0442\u043E\u0447\u043D\u044B\u043C\u0438."));
     return page;
   }
   taskDialog(task, goalId) {
     this.host.dialog(task ? "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443" : "\u041D\u043E\u0432\u0430\u044F \u0437\u0430\u0434\u0430\u0447\u0430", (body, close) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
       const form = el("form", "dl-form");
       const title = input((_a = task == null ? void 0 : task.title) != null ? _a : this.draft, "text", "\u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u043D\u0430\u0431\u0440\u043E\u0441\u0430\u0442\u044C \u043F\u043B\u0430\u043D \u043F\u0440\u043E\u0435\u043A\u0442\u0430");
       title.required = true;
@@ -1174,20 +1246,23 @@ var Dashboard = class {
       const notes = textarea((_i = task == null ? void 0 : task.description) != null ? _i : "", "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0438 \u0441\u0441\u044B\u043B\u043A\u0438. \u041F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F Markdown.");
       const grid = el("div", "dl-form-grid");
       grid.append(field("\u0414\u0430\u0442\u0430 \u043F\u043B\u0430\u043D\u0430", scheduled), field("\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442", scope), field("\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442", priority), field("\u041F\u043E\u0432\u0442\u043E\u0440\u0435\u043D\u0438\u0435", repeat), field("\u0421\u0440\u043E\u043A (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)", due), field("\u0426\u0435\u043B\u044C", goal));
-      form.append(field("\u0417\u0430\u0434\u0430\u0447\u0430", title), grid, field("\u0417\u0430\u043C\u0435\u0442\u043A\u0438", notes));
+      const labels = ((_j = task == null ? void 0 : task.labels) != null ? _j : []).map((label) => ({ ...label }));
+      const labelEditor = this.labelsEditor(labels);
+      form.append(field("\u0417\u0430\u0434\u0430\u0447\u0430", title), grid, labelEditor.element, field("\u0417\u0430\u043C\u0435\u0442\u043A\u0438", notes));
       if ((task == null ? void 0 : task.recurrence) !== "none" || !task) form.append(el("p", "dl-form-hint", "\u041F\u0440\u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0449\u0430\u044F\u0441\u044F \u0437\u0430\u0434\u0430\u0447\u0430 \u0437\u0430\u043F\u0438\u0448\u0435\u0442 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u0438 \u043F\u043E\u043B\u0443\u0447\u0438\u0442 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0443\u044E \u0434\u0430\u0442\u0443. \u041F\u043E\u0432\u0442\u043E\u0440 \u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0437\u0430\u0434\u0430\u0447 \u0434\u043D\u044F."));
       if (task == null ? void 0 : task.history.length) {
         const history = el("details", "dl-occurrences");
         history.append(el("summary", "", "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430\u0434\u0430\u0447\u0438"));
         task.history.slice().reverse().forEach((h) => {
           var _a2;
-          return history.append(el("p", "", `${displayDate(h.date)} \xB7 ${h.type === "moved" ? `\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0441 ${(_a2 = h.from) != null ? _a2 : "\u2014"}` : h.type === "completed" ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0430" : "\u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u0430 \u0432 \u0440\u0430\u0431\u043E\u0442\u0443"}`));
+          return history.append(el("p", "", `${displayDate(h.date)} \xB7 ${h.type === "moved" ? `\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0441 ${(_a2 = h.from) != null ? _a2 : "\u2014"}` : h.type === "completed" ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0430" : h.type === "cancelled" ? "\u043E\u0442\u043C\u0435\u043D\u0435\u043D\u0430" : "\u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u0430 \u0432 \u0440\u0430\u0431\u043E\u0442\u0443"}`));
         });
         form.append(history);
       }
       this.formActions(form, close, async () => {
         if (repeat.value !== "none" && scope.value !== "day") throw new Error("\u041F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0449\u0438\u0435\u0441\u044F \u0437\u0430\u0434\u0430\u0447\u0438 \u0434\u043E\u043B\u0436\u043D\u044B \u0438\u043C\u0435\u0442\u044C \u0433\u043E\u0440\u0438\u0437\u043E\u043D\u0442 \xAB\u0414\u0435\u043D\u044C\xBB");
-        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value, priority: priority.value, recurrence: repeat.value, goal: goal.value, due: due.value, description: notes.value };
+        labelEditor.commit();
+        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value, priority: priority.value, recurrence: repeat.value, goal: goal.value, labels, due: due.value, description: notes.value };
         if (task) await this.store.updateTask(task.path, values);
         else {
           await this.store.createTask(values);
@@ -1200,6 +1275,57 @@ var Dashboard = class {
       body.append(form);
       window.setTimeout(() => title.focus(), 20);
     });
+  }
+  labelsEditor(labels) {
+    const group = el("section", "dl-label-editor");
+    group.setAttribute("aria-label", "\u041C\u0435\u0442\u043A\u0438 \u0437\u0430\u0434\u0430\u0447\u0438");
+    group.append(el("div", "dl-field-label", "\u041C\u0435\u0442\u043A\u0438"));
+    const chips = el("div", "dl-label-chips");
+    const render = () => {
+      chips.replaceChildren();
+      labels.forEach((label, index) => chips.append(button(`${label.name} \xD7`, () => {
+        labels.splice(index, 1);
+        render();
+      }, `dl-label dl-label-${label.color}`)));
+    };
+    const name = input("", "text", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043C\u0435\u0442\u043A\u0438");
+    name.maxLength = 60;
+    name.setAttribute("aria-label", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043C\u0435\u0442\u043A\u0438");
+    const color = select(LABEL_COLORS, "blue");
+    color.setAttribute("aria-label", "\u0426\u0432\u0435\u0442 \u043C\u0435\u0442\u043A\u0438");
+    const add = () => {
+      const normalized = normalizeLabels([...labels, { name: name.value, color: color.value }]);
+      labels.splice(0, labels.length, ...normalized);
+      name.value = "";
+      render();
+    };
+    name.onkeydown = (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        add();
+      }
+    };
+    const controls = el("div", "dl-label-controls");
+    controls.append(name, color, button("\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043C\u0435\u0442\u043A\u0443", add, "dl-button dl-button-secondary", "plus"));
+    group.append(chips, controls);
+    const suggestions = el("div", "dl-label-chips");
+    const seen = /* @__PURE__ */ new Set();
+    for (const label of this.data.tasks.flatMap((task) => task.labels)) {
+      if (seen.has(label.name)) continue;
+      seen.add(label.name);
+      suggestions.append(button(label.name, () => {
+        if (!labels.some((l) => l.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) labels.push({ ...label });
+        render();
+      }, `dl-label dl-label-${label.color}`));
+    }
+    if (suggestions.childElementCount) {
+      group.append(el("span", "dl-form-hint", "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0440\u0430\u043D\u0435\u0435"), suggestions);
+    }
+    group.addEventListener("focusout", (event) => {
+      if (!group.contains(event.relatedTarget) && name.value.trim()) add();
+    });
+    render();
+    return { element: group, commit: add };
   }
   goalDialog(goal) {
     this.host.dialog(goal ? "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0446\u0435\u043B\u044C" : "\u041D\u043E\u0432\u0430\u044F \u0446\u0435\u043B\u044C", (body, close) => {
@@ -1320,6 +1446,7 @@ var PlannerView = class extends import_obsidian2.ItemView {
   }
   async onClose() {
     var _a;
+    this.plugin.setTasksOnly(false);
     (_a = this.dashboard) == null ? void 0 : _a.destroy();
     this.dashboard = void 0;
   }
@@ -1332,12 +1459,28 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
     __publicField(this, "checking", false);
     __publicField(this, "lastDay", "");
     __publicField(this, "unloaded", false);
+    __publicField(this, "savedPanels");
+  }
+  setTasksOnly(enabled) {
+    var _a;
+    const { leftSplit, rightSplit } = this.app.workspace;
+    if (enabled && !this.unloaded) {
+      (_a = this.savedPanels) != null ? _a : this.savedPanels = { left: leftSplit.collapsed, right: rightSplit.collapsed };
+      if (!leftSplit.collapsed) leftSplit.collapse();
+      if (!rightSplit.collapsed) rightSplit.collapse();
+    } else if (this.savedPanels) {
+      const previous = this.savedPanels;
+      this.savedPanels = void 0;
+      if (!previous.left) leftSplit.expand();
+      if (!previous.right) rightSplit.expand();
+    }
   }
   async onload() {
     const saved = await this.loadData();
     this.settings = { ...DEFAULT_SETTINGS, ...saved && typeof saved === "object" ? saved : {} };
     this.settings.autoRollover = typeof this.settings.autoRollover === "boolean" ? this.settings.autoRollover : true;
     this.settings.showCompleted = typeof this.settings.showCompleted === "boolean" ? this.settings.showCompleted : true;
+    this.settings.tasksOnly = this.settings.tasksOnly === true;
     try {
       this.settings.root = normalizeRoot(this.settings.root);
     } catch (e) {
@@ -1346,6 +1489,10 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
     }
     this.store = new PlannerStore(new ObsidianStorage(this.app), { parse: import_obsidian2.parseYaml, stringify: import_obsidian2.stringifyYaml }, this.settings);
     this.registerView(VIEW, (leaf) => new PlannerView(leaf, this));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      var _a, _b;
+      return this.setTasksOnly(((_b = (_a = this.app.workspace.getActiveViewOfType(PlannerView)) == null ? void 0 : _a.dashboard) == null ? void 0 : _b.isTasksOnlyMode()) === true);
+    }));
     this.addRibbonIcon("sun", "\u041E\u0442\u043A\u0440\u044B\u0442\u044C Dayline", () => {
       void this.openPlanner();
     });
@@ -1392,6 +1539,7 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
   }
   onunload() {
     this.unloaded = true;
+    this.setTasksOnly(false);
     if (this.refreshTimer !== void 0) window.clearTimeout(this.refreshTimer);
   }
   report(error) {
@@ -1432,8 +1580,12 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
       dialog: (title, render) => {
         new PlannerModal(this.app, title, render).open();
       },
+      persistSettings: () => this.saveSettings(),
+      setTasksOnly: (enabled) => {
+        if (this.app.workspace.getActiveViewOfType(PlannerView)) this.setTasksOnly(enabled);
+      },
       settings: () => {
-        new PlannerModal(this.app, "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438 Dayline", (body) => {
+        new PlannerModal(this.app, "\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438", (body) => {
           new PlannerSettings(this.app, this).renderInto(body);
         }).open();
       }
@@ -1523,7 +1675,6 @@ var PlannerSettings = class extends import_obsidian2.PluginSettingTab {
     this.renderInto(this.containerEl);
   }
   renderInto(container) {
-    container.append(el("h2", "", "Dayline"));
     let root = this.plugin.settings.root;
     new import_obsidian2.Setting(container).setName("\u041F\u0430\u043F\u043A\u0430 \u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0449\u0438\u043A\u0430").setDesc("\u041F\u0440\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0438 \u0432\u0441\u0435 \u0444\u0430\u0439\u043B\u044B Dayline \u043F\u0435\u0440\u0435\u0435\u0434\u0443\u0442 \u0432 \u043D\u043E\u0432\u0443\u044E \u043F\u0430\u043F\u043A\u0443 \u0441 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435\u043C \u0441\u0441\u044B\u043B\u043E\u043A. \u0421\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u044F \u0438\u043C\u0451\u043D \u043E\u0442\u043C\u0435\u043D\u044F\u044E\u0442 \u043F\u0435\u0440\u0435\u043D\u043E\u0441.").addText((text) => text.setValue(root).setPlaceholder("_todotracking").onChange((value) => {
       root = value;

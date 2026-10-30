@@ -10,12 +10,13 @@ import { button, el, field, input } from '../src/ui/dom';
 class BrowserStorage implements Storage {
   private files: Record<string, string> = JSON.parse(localStorage.getItem('dayline-demo-v1') ?? '{}');
   private persist(): void { localStorage.setItem('dayline-demo-v1', JSON.stringify(this.files)); }
-  list(): string[] { return Object.keys(this.files); }
+  list(): string[] { return Object.keys(this.files).filter(path => !path.startsWith('.trash/')); }
   async exists(path: string): Promise<boolean> { return Object.hasOwn(this.files, path); }
   async read(path: string): Promise<string> { const text = this.files[path]; if (text === undefined) throw new Error('Файл не найден'); return text; }
   async create(path: string, content: string): Promise<void> { if (await this.exists(path)) throw new Error('Файл уже существует'); this.files[path] = content; this.persist(); }
   async process(path: string, update: (content: string) => string): Promise<void> { const text = await this.read(path); this.files[path] = update(text); this.persist(); }
   async move(from: string, to: string): Promise<void> { if (await this.exists(to)) throw new Error('Файл уже существует'); this.files[to] = await this.read(from); delete this.files[from]; this.persist(); }
+  async trash(path: string): Promise<void> { const content = await this.read(path); this.files[`.trash/${Date.now()}/${path}`] = content; delete this.files[path]; this.persist(); }
 }
 // JSON scalar values and arrays are valid YAML. This lightweight codec is preview-only;
 // Obsidian's full YAML parser is used in the actual plugin, including nested YAML history.
@@ -57,6 +58,7 @@ function dialog(title: string, render: (body: HTMLElement, close: () => void) =>
 const host: DashboardHost = {
   notify,
   dialog,
+  persistSettings: async () => { localStorage.setItem('dayline-demo-settings', JSON.stringify(store.settings)); },
   openFile: async path => { const text = await storage.read(path); dialog('Markdown · ' + path.split('/').pop(), (body, close) => { const editor = el('textarea', 'demo-source'); editor.value = text; editor.spellcheck = false; body.append(el('p', 'dl-subtitle', path), editor, button('Сохранить Markdown', () => { void storage.process(path, () => editor.value).then(async () => { close(); await dashboard.refresh(); }); }, 'dl-button dl-button-primary')); }); },
   settings: () => dialog('Настройки Dayline · демо', (body, close) => {
     body.append(el('p', 'dl-subtitle', 'Это браузерная песочница. Данные сохраняются только в localStorage этого браузера. В Obsidian используются файлы вашего хранилища.'));

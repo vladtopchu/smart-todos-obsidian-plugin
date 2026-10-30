@@ -1,5 +1,7 @@
 export type Scope = 'day' | 'week' | 'month' | 'year';
-export type Screen = Scope | 'goals' | 'habits';
+export type Screen = Scope | 'goals' | 'habits' | 'stats';
+export type LabelColor = 'gray' | 'red' | 'orange' | 'green' | 'blue' | 'purple';
+export interface TaskLabel { name: string; color: LabelColor }
 export type Priority = 'normal' | 'high' | 'low';
 export type Recurrence = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly';
 export interface Task {
@@ -12,10 +14,11 @@ export interface Task {
   priority: Priority;
   recurrence: Recurrence;
   goal: string;
+  labels: TaskLabel[];
   due: string;
   created: string;
   completed: string;
-  history: { type: 'moved' | 'completed' | 'reopened'; date: string; from?: string }[];
+  history: { type: 'moved' | 'completed' | 'reopened' | 'cancelled'; date: string; from?: string }[];
   description: string;
   archived?: boolean;
 }
@@ -41,8 +44,9 @@ export interface Settings {
   root: string;
   autoRollover: boolean;
   showCompleted: boolean;
+  tasksOnly: boolean;
 }
-export const DEFAULT_SETTINGS: Settings = { root: '_todotracking', autoRollover: true, showCompleted: true };
+export const DEFAULT_SETTINGS: Settings = { root: '_todotracking', autoRollover: true, showCompleted: true, tasksOnly: false };
 export interface Snapshot { tasks: Task[]; goals: Goal[]; habits: Habit[]; warnings: string[] }
 export interface Storage {
   list(): string[] | Promise<string[]>;
@@ -51,6 +55,7 @@ export interface Storage {
   process(path: string, update: (content: string) => string): Promise<void>;
   exists(path: string): boolean | Promise<boolean>;
   move(from: string, to: string): Promise<void>;
+  trash(path: string): Promise<void>;
 }
 export interface Codec {
   parse(text: string): Record<string, unknown>;

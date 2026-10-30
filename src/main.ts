@@ -23,7 +23,7 @@ class PlannerView extends ItemView {
     this.dashboard = new Dashboard(this.contentEl, this.plugin.store, this.plugin.host());
     await this.dashboard.refresh();
   }
-  async onClose(): Promise<void> { this.dashboard?.destroy(); this.dashboard = undefined; }
+  async onClose(): Promise<void> { this.plugin.setTasksOnly(false); this.dashboard?.destroy(); this.dashboard = undefined; }
 }
 
 export default class DaylinePlugin extends Plugin {
@@ -33,15 +33,30 @@ export default class DaylinePlugin extends Plugin {
   private checking = false;
   private lastDay = '';
   private unloaded = false;
+  private savedPanels?: { left: boolean; right: boolean };
+  setTasksOnly(enabled: boolean): void {
+    const { leftSplit, rightSplit } = this.app.workspace;
+    if (enabled && !this.unloaded) {
+      this.savedPanels ??= { left: leftSplit.collapsed, right: rightSplit.collapsed };
+      if (!leftSplit.collapsed) leftSplit.collapse();
+      if (!rightSplit.collapsed) rightSplit.collapse();
+    } else if (this.savedPanels) {
+      const previous = this.savedPanels; this.savedPanels = undefined;
+      if (!previous.left) leftSplit.expand();
+      if (!previous.right) rightSplit.expand();
+    }
+  }
   async onload(): Promise<void> {
     const saved = await this.loadData();
     this.settings = { ...DEFAULT_SETTINGS, ...(saved && typeof saved === 'object' ? saved : {}) };
     this.settings.autoRollover = typeof this.settings.autoRollover === 'boolean' ? this.settings.autoRollover : true;
     this.settings.showCompleted = typeof this.settings.showCompleted === 'boolean' ? this.settings.showCompleted : true;
+    this.settings.tasksOnly = this.settings.tasksOnly === true;
     try { this.settings.root = normalizeRoot(this.settings.root); }
     catch { this.settings.root = DEFAULT_SETTINGS.root; new Notice('Dayline: некорректная папка в настройках. Используется _todotracking.'); }
     this.store = new PlannerStore(new ObsidianStorage(this.app), { parse: parseYaml, stringify: stringifyYaml }, this.settings);
     this.registerView(VIEW, leaf => new PlannerView(leaf, this));
+    this.registerEvent(this.app.workspace.on('active-leaf-change', () => this.setTasksOnly(this.app.workspace.getActiveViewOfType(PlannerView)?.dashboard?.isTasksOnlyMode() === true)));
     this.addRibbonIcon('sun', 'Открыть Dayline', () => { void this.openPlanner(); });
     this.addCommand({ id: 'open-planner', name: 'Открыть планировщик', callback: () => { void this.openPlanner(); } });
     this.addCommand({ id: 'add-task', name: 'Добавить задачу', callback: () => { void this.openPlanner(true); } });
@@ -61,7 +76,7 @@ export default class DaylinePlugin extends Plugin {
     this.registerInterval(window.setInterval(() => { void this.checkDay(); }, 60_000));
     this.app.workspace.onLayoutReady(() => { if (!this.unloaded) void this.checkDay(); });
   }
-  onunload(): void { this.unloaded = true; if (this.refreshTimer !== undefined) window.clearTimeout(this.refreshTimer); }
+  onunload(): void { this.unloaded = true; this.setTasksOnly(false); if (this.refreshTimer !== undefined) window.clearTimeout(this.refreshTimer); }
   private report(error: unknown): void { console.error('Dayline', error); new Notice(`Dayline: ${error instanceof Error ? error.message : String(error)}`, 8000); }
   private async checkDay(): Promise<void> {
     if (this.checking || this.unloaded) return;
@@ -84,9 +99,11 @@ export default class DaylinePlugin extends Plugin {
       notify: message => { new Notice(message); },
       openFile: async path => { const file = this.app.vault.getAbstractFileByPath(path); if (file instanceof TFile) await this.app.workspace.getLeaf('tab').openFile(file); else throw new Error(`Файл не найден: ${path}`); },
       dialog: (title, render) => { new PlannerModal(this.app, title, render).open(); },
+      persistSettings: () => this.saveSettings(),
+      setTasksOnly: enabled => { if (this.app.workspace.getActiveViewOfType(PlannerView)) this.setTasksOnly(enabled); },
       settings: () => {
         // Open the public plugin-specific settings through a modal; no private app.setting API.
-        new PlannerModal(this.app, 'Настройки Dayline', body => { new PlannerSettings(this.app, this).renderInto(body); }).open();
+        new PlannerModal(this.app, 'Настройки', body => { new PlannerSettings(this.app, this).renderInto(body); }).open();
       },
     };
   }
@@ -130,7 +147,6 @@ class PlannerSettings extends PluginSettingTab {
   constructor(app: App, private plugin: DaylinePlugin) { super(app, plugin); }
   display(): void { this.containerEl.empty(); this.renderInto(this.containerEl); }
   renderInto(container: HTMLElement): void {
-    container.append(el('h2', '', 'Dayline'));
     let root = this.plugin.settings.root;
     new Setting(container).setName('Папка планировщика').setDesc('При сохранении все файлы Dayline переедут в новую папку с обновлением ссылок. Совпадения имён отменяют перенос.').addText(text => text.setValue(root).setPlaceholder('_todotracking').onChange(value => { root = value; })).addButton(btn => btn.setButtonText('Сохранить папку').onClick(async () => {
       btn.setDisabled(true);

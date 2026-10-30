@@ -6,6 +6,9 @@ export function button(label: string, onClick: () => void, className = '', iconN
   if (iconName) node.append(icon(iconName)); node.append(el('span', '', label)); node.onclick = onClick; return node;
 }
 const paths: Record<string, string> = {
+  stats: 'M4 20V10h4v10M10 20V4h4v16m2 0V8h4v12M2 20h20',
+  focus: 'M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5M8 8h8v8H8z',
+  trash: 'M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7',
   sun: 'M12 3v1m0 16v1M3 12h1m16 0h1M5.6 5.6l.7.7m11.4 11.4.7.7M5.6 18.4l.7-.7M17.7 6.3l.7-.7M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0',
   calendar: 'M8 2v4m8-4v4M3 10h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2',
   week: 'M4 4h16v16H4zM4 9h16M9 9v11M15 9v11',

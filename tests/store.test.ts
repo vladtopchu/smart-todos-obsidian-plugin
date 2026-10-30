@@ -6,6 +6,31 @@ import { importLegacy, legacyTasks } from '../src/legacy';
 
 function setup(today = '2026-10-30') { const storage = new MemoryStorage(); let date = today; const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS }, () => date); return { store, storage, setDate: (value: string) => { date = value; } }; }
 describe('atomic task lifecycle', () => {
+  it('preserves colored labels through rollover and completion independently of goals', async () => {
+    const { store } = setup();
+    const path = await store.createTask({ title: 'Labeled', scheduled: '2026-10-20', goal: 'goal-1', labels: [{ name: 'Работа', color: 'blue' }, { name: 'Срочно', color: 'red' }] });
+    await store.rollover(); await store.setTaskStatus(path, 'done');
+    expect((await store.snapshot()).tasks[0]).toMatchObject({ goal: 'goal-1', labels: [{ name: 'Работа', color: 'blue' }, { name: 'Срочно', color: 'red' }] });
+    await store.updateTask(path, { labels: [] }); expect((await store.snapshot()).tasks[0]!.labels).toEqual([]);
+  });
+  it('keeps cancellation as a recorded status and deletion as recoverable removal', async () => {
+    const { store, storage } = setup();
+    const cancelled = await store.createTask({ title: 'Отмена', scheduled: '2026-10-30' });
+    const deleted = await store.createTask({ title: 'Случайная задача', scheduled: '2026-10-30', description: 'Текст для восстановления' });
+    const original = await storage.read(deleted);
+    await store.setTaskStatus(cancelled, 'cancelled'); await store.deleteTask(deleted);
+    expect(storage.exists(cancelled)).toBe(true); expect(storage.exists(deleted)).toBe(false);
+    expect(storage.trashed.get(deleted)).toBe(original);
+    expect((await store.snapshot()).tasks).toMatchObject([{ path: cancelled, status: 'cancelled', history: [{ type: 'cancelled', date: '2026-10-30' }] }]);
+    await store.setTaskStatus(cancelled, 'open'); expect((await store.snapshot()).tasks[0]!.status).toBe('open');
+  });
+  it('refuses to trash notes, goals, and files outside the task folder', async () => {
+    const { store, storage } = setup();
+    const note = await store.ensureNote('day', '2026-10-30');
+    storage.files.set('_todotracking/tasks/other.md', '---\n{"id":"mine","type":"my-note"}\n---\nMy note');
+    for (const path of [note, '_todotracking/tasks/../days/2026-10-30.md', '_todotracking/tasks/other.md']) await expect(store.deleteTask(path)).rejects.toThrow();
+    expect(storage.trashed.size).toBe(0); expect(storage.exists(note)).toBe(true);
+  });
   it('rolls over all missed days once without duplicating tasks or touching other horizons', async () => {
     const { store, storage } = setup();
     const path = await store.createTask({ title: 'Очень важное', scheduled: '2026-10-20', description: 'Мой текст\n\n[[Ссылка]]' });

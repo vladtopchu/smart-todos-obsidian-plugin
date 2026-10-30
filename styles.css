@@ -305,3 +305,67 @@
   .dl-day-choice { padding: 10px; }
 }
 @media (prefers-reduced-motion: reduce) { .dl-meter > span { transition: none; } }
+
+/* Obsidian's button defaults center contents; navigation always starts at the left. */
+.dl-app .dl-nav-item, .dl-app .dl-settings-button { justify-content: flex-start; text-align: left; }
+.dl-app .dl-nav-item > span, .dl-app .dl-settings-button > span { text-align: left; }
+.dl-sidebar-footer { padding-left: 0; padding-right: 0; }
+.dl-local { padding-left: 11px; }
+.dl-settings-button { width: 100%; padding: 9px 11px; gap: 11px; }
+.dl-settings-button svg { width: 20px; height: 20px; }
+/* Use the host modal's surface for both the shell and content. */
+.dl-modal { background: var(--background-primary, var(--dl-surface)); }
+.dl-modal .dl-dialog { background: transparent; }
+.dl-modal .modal-title { color: var(--dl-ink); }
+.dl-app { position: relative; }
+.dl-tasks-only .dl-layout { grid-template-columns: minmax(0, 1fr); }
+.dl-tasks-only :is(.dl-sidebar, .dl-topbar, .dl-page-header, .dl-period-navigation, .dl-context-rail) { display: none; }
+.dl-tasks-only .dl-columns { display: block; }
+.dl-tasks-only .dl-content { max-width: 1100px; padding: 62px 24px 24px; }
+.dl-focus-exit { position: absolute; top: 14px; right: 24px; z-index: 3; }
+.dl-statistics .dl-stats { margin-top: 24px; }
+.dl-stat-value { font-size: 24px; font-weight: 500; }
+.dl-stat-controls { display: flex; align-items: center; gap: 8px; max-width: 500px; }
+.dl-stat-controls .dl-input { min-width: 0; }
+.dl-stat-controls .dl-icon-button { flex-shrink: 0; }
+.dl-stat-section { margin-top: 20px; }
+.dl-stat-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 14px 0; border-bottom: 1px solid var(--dl-line); }
+.dl-stat-row:last-child { border: 0; padding-bottom: 0; }
+.dl-stat-row > span:last-of-type { color: var(--dl-muted); font-size: 11px; }
+.dl-stat-row > .dl-meter { grid-column: 1 / -1; }
+.dl-label { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; background: transparent !important; }
+.dl-app .dl-label-gray, .dl-dialog .dl-label-gray { color: var(--dl-muted); }
+.dl-app .dl-label-red, .dl-dialog .dl-label-red { color: #ca253a; }
+.dl-app .dl-label-orange, .dl-dialog .dl-label-orange { color: #a64b00; }
+.dl-app .dl-label-green, .dl-dialog .dl-label-green { color: #08783c; }
+.dl-app .dl-label-blue, .dl-dialog .dl-label-blue { color: #2454e8; }
+.dl-app .dl-label-purple, .dl-dialog .dl-label-purple { color: #8527ce; }
+.theme-dark .dl-label-red { color: #ff6379; }
+.theme-dark .dl-label-orange { color: #ff9c45; }
+.theme-dark .dl-label-green { color: #36cb7b; }
+.theme-dark .dl-label-blue { color: #7b9dff; }
+.theme-dark .dl-label-purple { color: #c186ff; }
+.dl-label-editor { display: grid; gap: 9px; min-width: 0; }
+.dl-label-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dl-label-chips:empty { display: none; }
+.dl-label-controls { display: grid; grid-template-columns: minmax(0, 1fr) 120px auto; gap: 8px; }
+.dl-label-controls .dl-button { font-size: 11px; }
+@container (max-width: 920px) {
+  .dl-sidebar { display: flex; flex-direction: column; padding-top: 8px; }
+  .dl-nav { flex-wrap: wrap; overflow: visible; padding: 4px 0; }
+  .dl-app .dl-nav-item { flex: 0 1 auto; justify-content: flex-start; padding: 9px 10px; }
+  .dl-sidebar-footer { margin-top: 0; padding: 0; justify-content: flex-start; }
+  .dl-settings-button { width: auto; }
+  .dl-settings-button > span { display: inline; }
+  .dl-calendar { align-self: center; }
+}
+@container (max-width: 650px) {
+  .dl-topbar { flex-wrap: wrap; }
+  .dl-stat-row { grid-template-columns: minmax(0, 1fr); }
+  .dl-stat-row > .dl-meter { grid-column: 1; }
+  .dl-tasks-only .dl-content { padding-left: 12px; padding-right: 12px; }
+}
+@media (max-width: 500px) {
+  .dl-label-controls { grid-template-columns: minmax(0, 1fr) 110px; }
+  .dl-label-controls > .dl-button { grid-column: 1 / -1; }
+}

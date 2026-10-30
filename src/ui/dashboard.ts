@@ -1,13 +1,16 @@
 import { dateKey, displayDate, habitDue, habitStreak, inPeriod, parseDate, periodKey, shiftDay, stepPeriod, weekDays } from '../dates';
 import { PlannerStore } from '../store';
-import type { Goal, Habit, Priority, Recurrence, Scope, Screen, Snapshot, Task } from '../types';
+import type { Goal, Habit, LabelColor, Priority, Recurrence, Scope, Screen, Snapshot, Task, TaskLabel } from '../types';
 import { button, el, field, icon, input, meter, select, textarea } from './dom';
+import { LABEL_COLORS, normalizeLabels } from '../labels';
 
 export interface DashboardHost {
   notify(message: string): void;
   openFile(path: string): Promise<void>;
   dialog(title: string, render: (body: HTMLElement, close: () => void) => void): void;
   settings(): void;
+  persistSettings?(): Promise<void>;
+  setTasksOnly?(enabled: boolean): void;
 }
 const SCOPES: Record<Scope, string> = { day: 'День', week: 'Неделя', month: 'Месяц', year: 'Год' };
 const REPEATS: Record<Recurrence, string> = { none: 'Без повтора', daily: 'Каждый день', weekdays: 'По будням', weekly: 'Раз в неделю', monthly: 'Раз в месяц' };
@@ -24,10 +27,12 @@ export class Dashboard {
   private query = '';
   private draft = '';
   private calendarOpen = false;
+  private statsScope: Scope = 'week';
   private generation = 0;
   private disposed = false;
   constructor(private root: HTMLElement, private store: PlannerStore, private host: DashboardHost) { root.classList.add('dl-app'); }
   destroy(): void { this.disposed = true; this.generation++; this.root.replaceChildren(); }
+  isTasksOnlyMode(): boolean { return this.root.classList.contains('dl-tasks-only'); }
   async refresh(): Promise<void> {
     const generation = ++this.generation;
     const snapshot = await this.store.snapshot();
@@ -44,18 +49,19 @@ export class Dashboard {
     const focused = active && this.root.contains(active) ? active.dataset.focus : undefined;
     const selection = focused && (active?.type === 'text' || active?.type === 'search') ? [active.selectionStart, active.selectionEnd] : undefined;
     this.root.replaceChildren();
+    this.root.classList.toggle('dl-tasks-only', this.store.settings.tasksOnly && !['goals', 'habits', 'stats'].includes(this.screen));
+    this.host.setTasksOnly?.(this.isTasksOnlyMode());
     const layout = el('div', 'dl-layout'); layout.append(this.sidebar(), this.main()); this.root.append(layout);
+    if (this.root.classList.contains('dl-tasks-only')) this.root.append(button('Показать панели', () => this.togglePanels(), 'dl-button dl-focus-exit', 'focus'));
     if (focused) { const element = this.root.querySelector<HTMLInputElement>(`[data-focus="${focused}"]`); element?.focus(); if (selection) element?.setSelectionRange(selection[0] ?? 0, selection[1] ?? 0); }
   }
   private sidebar(): HTMLElement {
-    const side = el('aside', 'dl-sidebar'); const brand = el('div', 'dl-brand');
-    const mark = el('div', 'dl-brand-mark'); mark.append(icon('sun')); brand.append(mark, el('span', '', 'dayline')); side.append(brand);
+    const side = el('aside', 'dl-sidebar');
     const nav = el('nav', 'dl-nav'); nav.setAttribute('aria-label', 'Разделы планировщика');
-    const items: [Screen, string, string][] = [['day', 'Мой день', 'sun'], ['week', 'Неделя', 'week'], ['month', 'Месяц', 'month'], ['year', 'Год', 'year'], ['goals', 'Цели', 'target'], ['habits', 'Привычки', 'leaf']];
+    const items: [Screen, string, string][] = [['day', 'Мой день', 'sun'], ['week', 'Неделя', 'week'], ['month', 'Месяц', 'month'], ['year', 'Год', 'year'], ['goals', 'Цели', 'target'], ['habits', 'Привычки', 'leaf'], ['stats', 'Статистика', 'stats']];
     for (const [screen, label, glyph] of items) {
       const item = button(label, () => this.navigate(screen), `dl-nav-item ${this.screen === screen ? 'is-active' : ''}`, glyph);
       if (this.screen === screen) item.setAttribute('aria-current', 'page');
-      if (screen === 'day') { const count = this.data.tasks.filter(t => t.status === 'open' && t.scope === 'day' && t.scheduled === dateKey()).length; if (count) item.append(el('small', 'dl-nav-count', String(count))); }
       nav.append(item);
     }
     side.append(nav, this.calendar());
@@ -70,20 +76,22 @@ export class Dashboard {
     const grid = el('div', 'dl-calendar-grid'); WEEKDAYS.forEach(d => grid.append(el('span', 'dl-calendar-weekday', d)));
     const first = weekDays(this.calendarMonth)[0]!; const busy = new Set(this.data.tasks.filter(t => t.status !== 'cancelled').map(t => t.scheduled));
     for (let i = 0; i < 42; i++) {
-      const date = shiftDay(first, i); const node = button(String(parseDate(date).getDate()), () => { this.selected = date; this.calendarMonth = date.slice(0, 7) + '-01'; if (['goals', 'habits'].includes(this.screen)) this.screen = 'day'; this.render(); }, `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? 'is-outside' : ''} ${date === this.selected ? 'is-selected' : ''} ${date === dateKey() ? 'is-today' : ''} ${busy.has(date) ? 'has-tasks' : ''}`);
+      const date = shiftDay(first, i); const node = button(String(parseDate(date).getDate()), () => { this.selected = date; this.calendarMonth = date.slice(0, 7) + '-01'; if (['goals', 'habits', 'stats'].includes(this.screen)) this.screen = 'day'; this.render(); }, `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? 'is-outside' : ''} ${date === this.selected ? 'is-selected' : ''} ${date === dateKey() ? 'is-today' : ''} ${busy.has(date) ? 'has-tasks' : ''}`);
       node.setAttribute('aria-label', displayDate(date, { day: 'numeric', month: 'long', year: 'numeric' })); node.setAttribute('aria-pressed', String(date === this.selected)); if (date === dateKey()) node.setAttribute('aria-current', 'date'); grid.append(node);
     }
     box.append(grid); return box;
   }
   private main(): HTMLElement {
     const main = el('main', 'dl-main'); const top = el('div', 'dl-topbar');
-    const crumb = el('div', 'dl-breadcrumb'); crumb.append(icon('calendar'), el('span', '', 'Dayline'), el('span', 'dl-divider', '/'), el('strong', '', this.screen === 'goals' ? 'Цели' : this.screen === 'habits' ? 'Привычки' : SCOPES[this.screen]));
+    const crumb = el('div', 'dl-breadcrumb'); crumb.append(icon('calendar'), el('strong', '', this.screen === 'goals' ? 'Цели' : this.screen === 'habits' ? 'Привычки' : this.screen === 'stats' ? 'Статистика' : SCOPES[this.screen]));
     const topButtons = el('div', 'dl-inline'); topButtons.append(button('Календарь', () => { this.calendarOpen = !this.calendarOpen; this.render(); }, 'dl-icon-button dl-calendar-toggle', 'calendar'), button('Сегодня', () => this.navigate('day', dateKey()), 'dl-button dl-button-quiet'));
+    if (!['goals', 'habits', 'stats'].includes(this.screen)) topButtons.append(button('Только задачи', () => this.togglePanels(), 'dl-button dl-button-quiet', 'focus'));
     top.append(crumb, topButtons); main.append(top);
     const content = el('div', 'dl-content');
     if (this.data.warnings.length) { const warning = el('details', 'dl-warning'); warning.append(el('summary', '', `Не удалось прочитать файлов: ${this.data.warnings.length}`), el('pre', '', this.data.warnings.join('\n'))); content.append(warning); }
     if (this.screen === 'goals') content.append(this.goalsPage());
     else if (this.screen === 'habits') content.append(this.habitsPage());
+    else if (this.screen === 'stats') content.append(this.statsPage());
     else content.append(this.plannerPage(this.screen));
     main.append(content); return main;
   }
@@ -112,18 +120,14 @@ export class Dashboard {
       timeline.append(days);
     } else timeline.append(el('strong', 'dl-period-label', CAP(period)));
     timeline.append(button('Следующий период', () => this.navigate(scope, stepPeriod(this.selected, scope, 1)), 'dl-icon-button', 'right')); page.append(timeline);
-    const tasks = this.periodTasks(scope); const done = tasks.filter(t => t.status === 'done').length;
-    const stats = el('div', 'dl-stats');
-    const stat = (label: string, value: string, suffix = '') => { const card = el('div', 'dl-stat'); card.append(el('span', 'dl-stat-label', label)); const number = el('div', 'dl-stat-number'); number.append(el('strong', '', value)); if (suffix) number.append(el('span', '', suffix)); card.append(number); return card; };
-    stats.append(stat('В работе', String(tasks.filter(t => t.status === 'open').length)), stat('Выполнено', String(done), `из ${tasks.length}`));
+    const tasks = this.periodTasks(scope);
     const habits = this.data.habits.filter(h => !h.archived && habitDue(h.days, this.selected) && h.created <= this.selected);
-    stats.append(stat('Привычки', `${habits.filter(h => h.completions.includes(this.selected)).length}/${habits.length}`)); page.append(stats);
     const columns = el('div', 'dl-columns'); const taskColumn = el('section', 'dl-task-panel');
-    const taskHeader = el('div', 'dl-section-header'); const heading = el('div', 'dl-inline'); heading.append(el('h2', '', scope === 'day' ? 'Задачи дня' : 'Планы и задачи'), el('span', 'dl-count', String(tasks.length)));
+    const taskHeader = el('div', 'dl-section-header'); const heading = el('div', 'dl-inline'); heading.append(el('h2', '', scope === 'day' ? 'Задачи дня' : 'Планы и задачи'));
     const search = input(this.query, 'search', 'Найти задачу'); search.dataset.focus = 'search'; search.setAttribute('aria-label', 'Найти задачу'); search.classList.add('dl-search'); search.oninput = () => { this.query = search.value; this.render(); };
     taskHeader.append(heading, search); taskColumn.append(taskHeader);
     const tabs = el('div', 'dl-tabs'); for (const [key, label] of [['all', 'Все'], ['open', 'В работе'], ['done', 'Готово']] as const) { const tab = button(label, () => { this.filter = key; this.render(); }, `dl-tab ${this.filter === key ? 'is-active' : ''}`); tab.setAttribute('aria-pressed', String(this.filter === key)); tabs.append(tab); } taskColumn.append(tabs, this.quickAdd());
-    const visible = tasks.filter(t => (this.filter === 'all' ? this.store.settings.showCompleted || t.status === 'open' : t.status === this.filter) && `${t.title} ${t.description}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
+    const visible = tasks.filter(t => (this.filter === 'all' ? this.store.settings.showCompleted || t.status === 'open' : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map(label => label.name).join(' ')}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
     const overdue = scope === 'day' ? this.data.tasks.filter(t => t.status === 'open' && t.scope === 'day' && t.scheduled < this.selected && this.selected <= dateKey()) : [];
     if (overdue.length && !this.query && this.filter !== 'done') {
       const banner = el('div', 'dl-overdue-banner'); banner.append(el('strong', '', `Остались незавершённые · ${overdue.length}`), el('p', '', 'Перенесите нужное в выбранный день или измените дату задачи.'));
@@ -134,9 +138,6 @@ export class Dashboard {
       const sorted = [...visible].sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done') || ({ high: 0, normal: 1, low: 2 }[a.priority] - { high: 0, normal: 1, low: 2 }[b.priority]) || a.scheduled.localeCompare(b.scheduled));
       const list = el('div', 'dl-task-list'); list.setAttribute('aria-label', 'Задачи'); sorted.forEach(task => list.append(this.taskRow(task, scope !== 'day'))); taskColumn.append(list);
     }
-    const completedOccurrences = this.data.tasks.flatMap(t => t.recurrence !== 'none' ? t.history.filter(h => h.type === 'completed' && inPeriod(h.date, scope, this.selected)).map(h => ({ title: t.title, date: h.date })) : []);
-    if (completedOccurrences.length && this.filter !== 'open' && !this.query) { const history = el('details', 'dl-occurrences'); history.append(el('summary', '', `Выполненные повторы · ${completedOccurrences.length}`)); completedOccurrences.forEach(h => history.append(el('p', '', `✓ ${h.title} · ${displayDate(h.date)}`))); taskColumn.append(history); }
-    const progress = el('div', 'dl-task-progress'); progress.append(meter(tasks.length ? done / tasks.length * 100 : 0), el('span', '', `${done} из ${tasks.length} выполнено`)); taskColumn.append(progress);
     const rail = el('aside', 'dl-context-rail'); rail.append(this.dailyHabits(habits));
     if (scope === 'day') rail.append(this.weekFocus()); else rail.append(this.goalPreview());
     columns.append(taskColumn, rail); page.append(columns); return page;
@@ -156,6 +157,7 @@ export class Dashboard {
     check.onchange = () => { check.disabled = true; void this.action(() => this.store.setTaskStatus(task.path, check.checked ? 'done' : 'open')); };
     const body = el('div', 'dl-task-body'); body.append(button(task.title, () => this.taskDialog(task), 'dl-task-title'));
     const metadata = el('div', 'dl-task-meta');
+    task.labels.forEach(label => metadata.append(el('span', `dl-label dl-label-${label.color}`, label.name)));
     if (task.priority === 'high') metadata.append(el('span', 'dl-tag dl-tag-priority', '↑ Высокий приоритет'));
     if (task.priority === 'low') metadata.append(el('span', 'dl-tag', '↓ Низкий приоритет'));
     const goal = this.data.goals.find(g => g.id === task.goal); if (goal) { const tag = el('span', 'dl-task-goal'); tag.append(icon('target'), el('span', '', goal.title)); metadata.append(tag); }
@@ -171,7 +173,7 @@ export class Dashboard {
     this.host.dialog('Действия с задачей', (body, close) => {
       body.append(el('p', 'dl-subtitle', task.title));
       const actions = el('div', 'dl-action-list');
-      actions.append(button('Редактировать', () => { close(); this.taskDialog(task); }, 'dl-button', 'file'), button('В план на сегодня', () => { close(); void this.action(() => this.store.updateTask(task.path, { scheduled: dateKey(), scope: 'day' })); }, 'dl-button', 'sun'), button('Перенести на завтра', () => { close(); void this.action(() => this.store.updateTask(task.path, { scheduled: shiftDay(dateKey(), 1), scope: 'day' })); }, 'dl-button', 'move'), button('Открыть Markdown', () => { close(); void this.action(() => this.host.openFile(task.path)); }, 'dl-button', 'file'), button('Отменить задачу', () => { close(); void this.action(() => this.store.setTaskStatus(task.path, 'cancelled'), 'Задача отменена. Файл и история сохранены.'); }, 'dl-button dl-danger', 'close'));
+      actions.append(button('Редактировать', () => { close(); this.taskDialog(task); }, 'dl-button', 'file'), button('В план на сегодня', () => { close(); void this.action(() => this.store.updateTask(task.path, { scheduled: dateKey(), scope: 'day' })); }, 'dl-button', 'sun'), button('Перенести на завтра', () => { close(); void this.action(() => this.store.updateTask(task.path, { scheduled: shiftDay(dateKey(), 1), scope: 'day' })); }, 'dl-button', 'move'), button('Открыть Markdown', () => { close(); void this.action(() => this.host.openFile(task.path)); }, 'dl-button', 'file'), button('Отменить задачу', () => { close(); void this.action(() => this.store.setTaskStatus(task.path, 'cancelled'), 'Задача отменена. Файл и история сохранены.'); }, 'dl-button', 'close'), button('Удалить задачу', () => { close(); void this.action(() => this.store.deleteTask(task.path), 'Задача удалена. Файл перемещён в .trash.'); }, 'dl-button dl-danger', 'trash'));
       body.append(actions);
     });
   }
@@ -179,7 +181,7 @@ export class Dashboard {
     const box = el('section', 'dl-card'); const header = el('div', 'dl-section-header'); header.append(el('h2', '', 'Привычки'), button('Все привычки', () => this.navigate('habits'), 'dl-icon-button', 'arrow')); box.append(header);
     if (!habits.length) box.append(button('Добавить привычку', () => this.habitDialog(), 'dl-add-habit', 'plus'));
     for (const habit of habits) { const done = habit.completions.includes(this.selected); const row = button(habit.title, () => { void this.action(() => this.store.toggleHabit(habit.path, this.selected)); }, `dl-habit-daily ${done ? 'is-done' : ''}`); const check = el('span', 'dl-habit-check'); if (done) check.append(icon('check')); row.prepend(check); row.disabled = this.selected > dateKey(); row.setAttribute('aria-pressed', String(done)); box.append(row); }
-    if (habits.length) box.append(meter(habits.filter(h => h.completions.includes(this.selected)).length / habits.length * 100, 'dl-habit-meter')); return box;
+    return box;
   }
   private weekFocus(): HTMLElement {
     const box = el('section', 'dl-card dl-focus-card'); box.append(el('h2', '', 'Планы недели'));
@@ -202,10 +204,9 @@ export class Dashboard {
     if (!goals.length) page.append(this.empty('Нет целей', 'Добавьте цель и свяжите с ней задачи.'));
     const grid = el('div', 'dl-goal-grid');
     for (const goal of goals) {
-      const tasks = this.data.tasks.filter(t => t.goal === goal.id && t.status !== 'cancelled'); const done = tasks.filter(t => t.status === 'done').length; const progress = tasks.length ? done / tasks.length * 100 : 0;
+      const tasks = this.data.tasks.filter(t => t.goal === goal.id && t.status !== 'cancelled');
       const card = el('section', `dl-goal-card ${goal.status === 'done' ? 'is-done' : ''}`); const top = el('div', 'dl-section-header'); top.append(el('span', 'dl-goal-state', goal.status === 'done' ? 'Достигнута' : 'В работе'), button('Редактировать цель', () => this.goalDialog(goal), 'dl-icon-button', 'dots')); card.append(top, el('h2', '', goal.title));
       if (goal.description) card.append(el('p', 'dl-goal-description', goal.description));
-      card.append(meter(goal.status === 'done' ? 100 : progress)); const numbers = el('div', 'dl-goal-numbers'); numbers.append(el('strong', '', `${goal.status === 'done' ? 100 : Math.round(progress)}%`), el('span', '', `${done} из ${tasks.length} задач`)); card.append(numbers);
       if (goal.target) card.append(el('p', `dl-goal-date ${goal.target < dateKey() && goal.status === 'active' ? 'dl-late' : ''}`, `Срок: ${displayDate(goal.target, { day: 'numeric', month: 'long', year: 'numeric' })}`));
       if (tasks.length) { const linked = el('details', 'dl-linked-tasks'); linked.append(el('summary', '', 'Связанные задачи')); tasks.forEach(task => linked.append(this.taskRow(task, true))); card.append(linked); }
       card.append(button('Добавить задачу', () => this.taskDialog(undefined, goal.id), 'dl-text-button', 'plus')); grid.append(card);
@@ -217,7 +218,7 @@ export class Dashboard {
     const nav = el('div', 'dl-habit-week-nav'); nav.append(button('Предыдущая неделя', () => { this.selected = shiftDay(this.selected, -7); this.render(); }, 'dl-icon-button', 'left'), el('strong', '', `${displayDate(weekDays(this.selected)[0]!)} — ${displayDate(weekDays(this.selected)[6]!)}`), button('Следующая неделя', () => { this.selected = shiftDay(this.selected, 7); this.render(); }, 'dl-icon-button', 'right')); page.append(nav);
     const habits = this.data.habits.filter(h => !h.archived); if (!habits.length) page.append(this.empty('Нет привычек', 'Добавьте привычку и выберите дни недели.'));
     const tableWrap = el('div', 'dl-habit-table-wrap'); const table = el('table', 'dl-habit-table'); const thead = el('thead'); const head = el('tr'); head.append(el('th', '', 'Привычка'));
-    weekDays(this.selected).forEach((date, i) => { const th = el('th', date === dateKey() ? 'is-today' : ''); th.append(el('span', '', WEEKDAYS[i]), el('strong', '', String(parseDate(date).getDate()))); head.append(th); }); head.append(el('th', '', 'Серия')); thead.append(head); table.append(thead);
+    weekDays(this.selected).forEach((date, i) => { const th = el('th', date === dateKey() ? 'is-today' : ''); th.append(el('span', '', WEEKDAYS[i]), el('strong', '', String(parseDate(date).getDate()))); head.append(th); }); thead.append(head); table.append(thead);
     const tbody = el('tbody');
     for (const habit of habits) {
       const row = el('tr'); const label = el('td'); label.append(button(habit.title, () => this.habitDialog(habit), 'dl-habit-title')); row.append(label);
@@ -226,16 +227,58 @@ export class Dashboard {
         const toggle = button(`${habit.title}, ${displayDate(date)}: ${done ? 'выполнено' : due ? 'не выполнено' : 'выходной'}`, () => { void this.action(() => this.store.toggleHabit(habit.path, date)); }, `dl-habit-cell ${done ? 'is-done' : ''} ${!due ? 'is-rest' : ''}`);
         toggle.replaceChildren(done ? icon('check') : el('span', '', due ? '' : '—')); toggle.disabled = !due || date > dateKey(); toggle.setAttribute('aria-pressed', String(done)); cell.append(toggle); row.append(cell);
       }
-      const streak = el('td', 'dl-streak', `${habitStreak(habit.days, habit.completions, dateKey(), habit.created)} дн.`); row.append(streak); tbody.append(row);
+      tbody.append(row);
     }
     table.append(tbody); tableWrap.append(table); if (habits.length) page.append(tableWrap);
+    return page;
+  }
+  private togglePanels(): void {
+    this.store.settings.tasksOnly = !this.store.settings.tasksOnly;
+    this.render();
+    void this.host.persistSettings?.().catch(error => this.host.notify(String(error)));
+  }
+  private statsPage(): HTMLElement {
+    const page = el('div', 'dl-statistics');
+    page.append(this.pageHeader('', 'Статистика', '', []));
+    const scope = select(SCOPES, this.statsScope); scope.setAttribute('aria-label', 'Период статистики');
+    scope.onchange = () => { this.statsScope = scope.value as Scope; this.render(); };
+    const controls = el('div', 'dl-stat-controls');
+    controls.append(scope, button('Предыдущий период', () => { this.selected = stepPeriod(this.selected, this.statsScope, -1); this.render(); }, 'dl-icon-button', 'left'), input(this.selected, 'date'), button('Следующий период', () => { this.selected = stepPeriod(this.selected, this.statsScope, 1); this.render(); }, 'dl-icon-button', 'right'));
+    const date = controls.querySelector('input')!; date.setAttribute('aria-label', 'Дата статистики'); date.onchange = () => { if (date.value) { this.selected = date.value; this.render(); } };
+    page.append(controls, el('p', 'dl-subtitle', `Период: ${periodKey(this.statsScope, this.selected)}`));
+    const inRange = (date: string) => !!date && inPeriod(date, this.statsScope, this.selected);
+    const planned = this.data.tasks.filter(t => inRange(t.scheduled) && t.status !== 'cancelled');
+    const completed = this.data.tasks.reduce((n, t) => n + (t.recurrence === 'none' ? Number(t.status === 'done' && inRange(t.completed)) : t.history.filter(h => h.type === 'completed' && inRange(h.date)).length), 0);
+    const moved = this.data.tasks.reduce((n, t) => n + t.history.filter(h => h.type === 'moved' && inRange(h.date)).length, 0);
+    const stats = el('div', 'dl-stats');
+    for (const [label, value] of [['В работе', planned.filter(t => t.status === 'open').length], ['Выполнено за период', completed], ['Переносов', moved]] as const) {
+      const stat = el('div', 'dl-stat'); stat.append(el('span', 'dl-stat-label', label), el('strong', 'dl-stat-value', String(value))); stats.append(stat);
+    }
+    page.append(stats);
+    const goals = el('section', 'dl-card dl-stat-section'); goals.append(el('h2', '', 'Прогресс целей'));
+    for (const goal of this.data.goals.filter(g => g.status !== 'archived')) {
+      const tasks = this.data.tasks.filter(t => t.goal === goal.id && t.status !== 'cancelled');
+      const done = tasks.filter(t => t.status === 'done').length;
+      const row = el('div', 'dl-stat-row'); row.append(el('span', '', goal.title), el('span', '', `${done} из ${tasks.length}`), meter(goal.status === 'done' ? 100 : tasks.length ? done / tasks.length * 100 : 0)); goals.append(row);
+    }
+    if (goals.childElementCount === 1) goals.append(el('p', 'dl-subtitle', 'Нет целей.'));
+    page.append(goals);
+    const habits = this.data.habits.filter(h => !h.archived);
+    const habitStats = el('section', 'dl-card dl-stat-section'); habitStats.append(el('h2', '', 'Привычки'));
+    for (const habit of habits) {
+      const row = el('div', 'dl-stat-row'); row.append(el('span', '', habit.title), el('span', '', `${habit.completions.filter(inRange).length} отметок · серия на сегодня: ${habitStreak(habit.days, habit.completions, dateKey(), habit.created)} дн.`)); habitStats.append(row);
+    }
+    if (!habits.length) habitStats.append(el('p', 'dl-subtitle', 'Нет привычек.'));
+    page.append(habitStats);
     const history = el('section', 'dl-card dl-history'); history.append(el('h2', '', 'История за 12 недель'));
     const heatmap = el('div', 'dl-heatmap');
     for (let offset = -83; offset <= 0; offset++) {
       const date = shiftDay(dateKey(), offset); const available = habits.filter(h => h.created <= date && habitDue(h.days, date)); const n = available.filter(h => h.completions.includes(date)).length; const level = !available.length || !n ? 0 : n === available.length ? 3 : n / available.length >= .5 ? 2 : 1;
       const cell = button(`${displayDate(date)}: ${n} из ${available.length} привычек`, () => this.navigate('day', date), `dl-heat-cell dl-heat-${level}`); cell.replaceChildren(); cell.title = cell.getAttribute('aria-label')!; heatmap.append(cell);
     }
-    history.append(heatmap, el('p', 'dl-card-subtitle', 'Серия учитывает дни по расписанию. Чем насыщеннее цвет, тем больше привычек выполнено.')); if (habits.length) page.append(history); return page;
+    history.append(heatmap); page.append(history);
+    page.append(el('p', 'dl-subtitle', 'Сводка задач и отметок — за выбранный период. Прогресс целей — за всё время. История привычек — за последние 12 недель. Даты выполнения задач, отмеченных вручную в Markdown, могут быть неточными.'));
+    return page;
   }
   taskDialog(task?: Task, goalId?: string): void {
     this.host.dialog(task ? 'Редактировать задачу' : 'Новая задача', (body, close) => {
@@ -244,16 +287,39 @@ export class Dashboard {
       const scope = select(SCOPES, task?.scope ?? this.taskScope()); const priority = select(PRIORITIES, task?.priority ?? 'normal'); const repeat = select(REPEATS, task?.recurrence ?? 'none');
       const goals: Record<string, string> = { '': 'Без привязки к цели' }; this.data.goals.filter(g => g.status !== 'archived' || g.id === task?.goal).forEach(g => { goals[g.id] = g.title; });
       const goal = select(goals, task?.goal ?? goalId ?? ''); const due = input(task?.due ?? '', 'date'); const notes = textarea(task?.description ?? '', 'Описание и ссылки. Поддерживается Markdown.');
-      const grid = el('div', 'dl-form-grid'); grid.append(field('Дата плана', scheduled), field('Горизонт', scope), field('Приоритет', priority), field('Повторение', repeat), field('Срок (необязательно)', due), field('Цель', goal)); form.append(field('Задача', title), grid, field('Заметки', notes));
+      const grid = el('div', 'dl-form-grid'); grid.append(field('Дата плана', scheduled), field('Горизонт', scope), field('Приоритет', priority), field('Повторение', repeat), field('Срок (необязательно)', due), field('Цель', goal)); const labels = (task?.labels ?? []).map(label => ({ ...label })); const labelEditor = this.labelsEditor(labels);
+      form.append(field('Задача', title), grid, labelEditor.element, field('Заметки', notes));
       if (task?.recurrence !== 'none' || !task) form.append(el('p', 'dl-form-hint', 'При выполнении повторяющаяся задача запишет результат и получит следующую дату. Повтор доступен только для задач дня.'));
-      if (task?.history.length) { const history = el('details', 'dl-occurrences'); history.append(el('summary', '', 'История задачи')); task.history.slice().reverse().forEach(h => history.append(el('p', '', `${displayDate(h.date)} · ${h.type === 'moved' ? `перенос с ${h.from ?? '—'}` : h.type === 'completed' ? 'выполнена' : 'возвращена в работу'}`))); form.append(history); }
+      if (task?.history.length) { const history = el('details', 'dl-occurrences'); history.append(el('summary', '', 'История задачи')); task.history.slice().reverse().forEach(h => history.append(el('p', '', `${displayDate(h.date)} · ${h.type === 'moved' ? `перенос с ${h.from ?? '—'}` : h.type === 'completed' ? 'выполнена' : h.type === 'cancelled' ? 'отменена' : 'возвращена в работу'}`))); form.append(history); }
       this.formActions(form, close, async () => {
         if (repeat.value !== 'none' && scope.value !== 'day') throw new Error('Повторяющиеся задачи должны иметь горизонт «День»');
-        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value as Scope, priority: priority.value as Priority, recurrence: repeat.value as Recurrence, goal: goal.value, due: due.value, description: notes.value };
+        labelEditor.commit();
+        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value as Scope, priority: priority.value as Priority, recurrence: repeat.value as Recurrence, goal: goal.value, labels, due: due.value, description: notes.value };
         if (task) await this.store.updateTask(task.path, values); else { await this.store.createTask(values); this.draft = ''; }
       }, task ? 'Сохранить' : 'Добавить задачу', task ? button('Markdown', () => { close(); void this.action(() => this.host.openFile(task.path)); }, 'dl-button dl-button-secondary', 'file') : undefined);
       body.append(form); window.setTimeout(() => title.focus(), 20);
     });
+  }
+  private labelsEditor(labels: TaskLabel[]): { element: HTMLElement; commit: () => void } {
+    const group = el('section', 'dl-label-editor'); group.setAttribute('aria-label', 'Метки задачи');
+    group.append(el('div', 'dl-field-label', 'Метки'));
+    const chips = el('div', 'dl-label-chips');
+    const render = () => { chips.replaceChildren(); labels.forEach((label, index) => chips.append(button(`${label.name} ×`, () => { labels.splice(index, 1); render(); }, `dl-label dl-label-${label.color}`))); };
+    const name = input('', 'text', 'Название метки'); name.maxLength = 60; name.setAttribute('aria-label', 'Название метки');
+    const color = select(LABEL_COLORS, 'blue'); color.setAttribute('aria-label', 'Цвет метки');
+    const add = () => { const normalized = normalizeLabels([...labels, { name: name.value, color: color.value as LabelColor }]); labels.splice(0, labels.length, ...normalized); name.value = ''; render(); };
+    name.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); add(); } };
+    const controls = el('div', 'dl-label-controls'); controls.append(name, color, button('Добавить метку', add, 'dl-button dl-button-secondary', 'plus'));
+    group.append(chips, controls);
+    const suggestions = el('div', 'dl-label-chips'); const seen = new Set<string>();
+    for (const label of this.data.tasks.flatMap(task => task.labels)) {
+      if (seen.has(label.name)) continue; seen.add(label.name);
+      suggestions.append(button(label.name, () => { if (!labels.some(l => l.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) labels.push({ ...label }); render(); }, `dl-label dl-label-${label.color}`));
+    }
+    if (suggestions.childElementCount) { group.append(el('span', 'dl-form-hint', 'Использованные ранее'), suggestions); }
+    // Commit a typed label on save even if its add button was not pressed.
+    group.addEventListener('focusout', event => { if (!group.contains(event.relatedTarget as Node | null) && name.value.trim()) add(); });
+    render(); return { element: group, commit: add };
   }
   private goalDialog(goal?: Goal): void {
     this.host.dialog(goal ? 'Редактировать цель' : 'Новая цель', (body, close) => {

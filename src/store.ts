@@ -1,6 +1,7 @@
 import { dateKey, habitDue, nextOccurrence, periodKey, validDate } from './dates';
 import type { Codec, Goal, Habit, Settings, Snapshot, Storage, Task, Scope } from './types';
 import { newId } from './ids';
+import { normalizeLabels } from './labels';
 
 interface Document { data: Record<string, unknown>; body: string }
 const TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- dayline:task -->[ \t]*$/m;
@@ -35,13 +36,13 @@ export class PlannerStore {
     const d = doc.data; if (!validDate(d.scheduled)) throw new Error('Некорректная дата задачи');
     const line = TASK_LINE.exec(doc.body);
     const status = line ? (line[1]!.toLowerCase() === 'x' ? 'done' : line[1] === '-' ? 'cancelled' : 'open') : pick(d.status, ['open', 'done', 'cancelled'], 'open');
-    const history = Array.isArray(d.history) ? d.history.filter((h): h is Task['history'][number] => !!h && typeof h === 'object' && validDate(h.date) && ['moved', 'completed', 'reopened'].includes(h.type)) : [];
+    const history = Array.isArray(d.history) ? d.history.filter((h): h is Task['history'][number] => !!h && typeof h === 'object' && validDate(h.date) && ['moved', 'completed', 'reopened', 'cancelled'].includes(h.type)) : [];
     return {
       id: str(d.id), path, title: line?.[2] ?? str(d.title, 'Без названия'), status,
       scheduled: d.scheduled, scope: pick(d.scope, ['day', 'week', 'month', 'year'], 'day'),
       priority: pick(d.priority, ['normal', 'high', 'low'], 'normal'),
       recurrence: pick(d.recurrence, ['none', 'daily', 'weekdays', 'weekly', 'monthly'], 'none'),
-      goal: str(d.goal), due: validDate(d.due) ? d.due : '', created: validDate(d.created) ? d.created : d.scheduled,
+      goal: str(d.goal), labels: normalizeLabels(d.labels), due: validDate(d.due) ? d.due : '', created: validDate(d.created) ? d.created : d.scheduled,
       completed: status === 'done' ? (validDate(d.completed) ? d.completed : d.scheduled) : '',
       history, description: doc.body.replace(TASK_LINE, '').trim(),
     };
@@ -79,7 +80,7 @@ export class PlannerStore {
     if (!validDate(input.scheduled) || (input.due && !validDate(input.due))) throw new Error('Проверьте дату');
     return this.serial(async () => {
       const id = newId(); const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: 'dayline-task', id, title, status: 'open', scheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', goal: input.goal ?? '', due: input.due ?? '', created: this.now(), completed: '', history: [] };
+      const data = { type: 'dayline-task', id, title, status: 'open', scheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', goal: input.goal ?? '', labels: normalizeLabels(input.labels), due: input.due ?? '', created: this.now(), completed: '', history: [] };
       await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- dayline:task -->\n\n${input.description?.trim() ?? ''}\n` }));
       return path;
     });
@@ -87,6 +88,7 @@ export class PlannerStore {
   private async mutateTask(path: string, update: (task: Task) => Partial<Task>): Promise<void> {
     await this.storage.process(path, text => {
       const doc = this.decode(text); const current = this.task(doc, path); const patch = update(current);
+      if (patch.labels !== undefined) patch.labels = normalizeLabels(patch.labels);
       if (!Object.keys(patch).length) return text;
       const next = { ...current, ...patch };
       if (!singleLine(next.title) || !validDate(next.scheduled) || (next.due && !validDate(next.due))) throw new Error('Проверьте название и даты');
@@ -99,7 +101,7 @@ export class PlannerStore {
       return this.encode(doc);
     });
   }
-  updateTask(path: string, patch: Partial<Pick<Task, 'title' | 'scheduled' | 'due' | 'scope' | 'priority' | 'recurrence' | 'goal' | 'description'>>): Promise<void> {
+  updateTask(path: string, patch: Partial<Pick<Task, 'title' | 'scheduled' | 'due' | 'scope' | 'priority' | 'recurrence' | 'goal' | 'labels' | 'description'>>): Promise<void> {
     return this.serial(() => this.mutateTask(path, task => ({ ...patch, ...(patch.scheduled && patch.scheduled !== task.scheduled ? { history: [...task.history, { type: 'moved' as const, date: this.now(), from: task.scheduled }] } : {}) })));
   }
   setTaskStatus(path: string, status: Task['status']): Promise<void> {
@@ -112,8 +114,17 @@ export class PlannerStore {
         if (task.scheduled > today || task.history.some(h => h.type === 'completed' && h.date === today)) return {};
         return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: 'open', completed: '', history: [...task.history, { type: 'completed', date: today, from: task.scheduled }] };
       }
-      return { status, completed: status === 'done' ? today : '', history: [...task.history, { type: status === 'done' ? 'completed' : 'reopened', date: today }] };
+      return { status, completed: status === 'done' ? today : '', history: [...task.history, { type: status === 'done' ? 'completed' : status === 'cancelled' ? 'cancelled' : 'reopened', date: today }] };
     }));
+  }
+  deleteTask(path: string): Promise<void> {
+    return this.serial(async () => {
+      const prefix = `${this.settings.root}/tasks/`;
+      if (!path.startsWith(prefix) || !/^[^/\\]+\.md$/.test(path.slice(prefix.length)) || path.slice(prefix.length).startsWith('.')) throw new Error('Удалять можно только файлы задач Dayline');
+      const doc = this.decode(await this.storage.read(path));
+      if (doc.data.type !== 'dayline-task') throw new Error('Этот файл не является задачей Dayline');
+      await this.storage.trash(path);
+    });
   }
   async rollover(): Promise<number> {
     if (!this.settings.autoRollover) return 0;

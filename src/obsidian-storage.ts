@@ -26,4 +26,5 @@ export class ObsidianStorage implements Storage {
   async create(path: string, content: string): Promise<void> { await this.parents(path); await this.app.vault.create(normalizePath(path), content); }
   async process(path: string, update: (content: string) => string): Promise<void> { await this.app.vault.process(this.file(path), update); }
   async move(from: string, to: string): Promise<void> { await this.parents(to); await this.app.fileManager.renameFile(this.file(from), normalizePath(to)); }
+  async trash(path: string): Promise<void> { await this.app.vault.trash(this.file(path), false); }
 }

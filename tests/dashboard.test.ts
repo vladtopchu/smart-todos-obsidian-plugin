@@ -15,6 +15,31 @@ function setup() {
   return { storage, store, root, messages, dashboard: new Dashboard(root, store, host) };
 }
 describe('planner UI', () => {
+  it('keeps statistics out of working screens and counts completions in their actual period', async () => {
+    const { store, dashboard, root } = setup();
+    const path = await store.createTask({ title: 'Done today', scheduled: shiftDay(dateKey(), -20) }); await store.setTaskStatus(path, 'done');
+    for (const screen of ['day', 'week', 'goals', 'habits'] as const) { await dashboard.refresh(); dashboard.navigate(screen); expect(root.querySelector('[role="progressbar"], .dl-stats, .dl-heatmap, .dl-streak')).toBeNull(); }
+    dashboard.navigate('stats');
+    const stat = [...root.querySelectorAll('.dl-stat')].find(el => el.textContent?.includes('Выполнено за период'));
+    expect(stat?.querySelector('strong')?.textContent).toBe('1'); expect(root.querySelector('.dl-statistics')).not.toBeNull();
+  });
+  it('preserves the quick-add draft when toggling task-only mode and can restore panels', async () => {
+    const { store, dashboard, root } = setup(); await dashboard.refresh();
+    const quick = root.querySelector<HTMLInputElement>('[data-focus="quick"]')!; quick.value = 'Draft'; quick.dispatchEvent(new Event('input'));
+    root.querySelector<HTMLButtonElement>('[aria-label="Только задачи"]')!.click();
+    expect(root.classList.contains('dl-tasks-only')).toBe(true); expect(store.settings.tasksOnly).toBe(true);
+    expect(root.querySelector<HTMLInputElement>('[data-focus="quick"]')!.value).toBe('Draft');
+    root.querySelector<HTMLButtonElement>('[aria-label="Показать панели"]')!.click(); expect(root.classList.contains('dl-tasks-only')).toBe(false);
+  });
+  it('saves a typed colored label without requiring an extra add click', async () => {
+    const { store, dashboard } = setup(); await dashboard.refresh(); dashboard.taskDialog();
+    const form = document.querySelector<HTMLFormElement>('.dl-form')!;
+    form.querySelector<HTMLInputElement>('input[type="text"]')!.value = 'Labeled task';
+    form.querySelector<HTMLInputElement>('[aria-label="Название метки"]')!.value = 'Работа';
+    form.querySelector<HTMLSelectElement>('[aria-label="Цвет метки"]')!.value = 'red';
+    await form.onsubmit!(new Event('submit', { cancelable: true }) as SubmitEvent);
+    expect((await store.snapshot()).tasks[0]!.labels).toEqual([{ name: 'Работа', color: 'red' }]);
+  });
   it('browses calendar and period views without writing any note', async () => {
     const { storage, dashboard, root } = setup(); await dashboard.refresh();
     for (const node of root.querySelectorAll<HTMLButtonElement>('.dl-calendar-day')) node.click();
