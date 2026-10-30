@@ -712,8 +712,8 @@ var Dashboard = class {
     const brand = el("div", "dl-brand");
     const mark = el("div", "dl-brand-mark");
     mark.append(icon("sun"));
-    brand.append(mark, el("span", "", "dayline"), el("span", "dl-brand-dot", "\u2022"));
-    side.append(brand, el("div", "dl-sidebar-caption", "\u041C\u0415\u0421\u0422\u041E \u0414\u041B\u042F \u0412\u0410\u0428\u0418\u0425 \u041F\u041B\u0410\u041D\u041E\u0412"));
+    brand.append(mark, el("span", "", "dayline"));
+    side.append(brand);
     const nav = el("nav", "dl-nav");
     nav.setAttribute("aria-label", "\u0420\u0430\u0437\u0434\u0435\u043B\u044B \u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0449\u0438\u043A\u0430");
     const items = [["day", "\u041C\u043E\u0439 \u0434\u0435\u043D\u044C", "sun"], ["week", "\u041D\u0435\u0434\u0435\u043B\u044F", "week"], ["month", "\u041C\u0435\u0441\u044F\u0446", "month"], ["year", "\u0413\u043E\u0434", "year"], ["goals", "\u0426\u0435\u043B\u0438", "target"], ["habits", "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", "leaf"]];
@@ -765,14 +765,14 @@ var Dashboard = class {
       if (date === dateKey()) node.setAttribute("aria-current", "date");
       grid.append(node);
     }
-    box.append(grid, el("p", "dl-calendar-help", "\u0412\u044B\u0431\u0438\u0440\u0430\u0439\u0442\u0435 \u0434\u043D\u0438. \u0417\u0430\u043C\u0435\u0442\u043A\u0438 \u0441\u043E\u0437\u0434\u0430\u044E\u0442\u0441\u044F \u0442\u043E\u043B\u044C\u043A\u043E \u043F\u043E \u043A\u043D\u043E\u043F\u043A\u0435."));
+    box.append(grid);
     return box;
   }
   main() {
     const main = el("main", "dl-main");
     const top = el("div", "dl-topbar");
     const crumb = el("div", "dl-breadcrumb");
-    crumb.append(icon("calendar"), el("span", "", "\u041B\u0438\u0447\u043D\u043E\u0435 \u043F\u0440\u043E\u0441\u0442\u0440\u0430\u043D\u0441\u0442\u0432\u043E"), el("span", "dl-divider", "/"), el("strong", "", this.screen === "goals" ? "\u0426\u0435\u043B\u0438" : this.screen === "habits" ? "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438" : SCOPES[this.screen]));
+    crumb.append(icon("calendar"), el("span", "", "Dayline"), el("span", "dl-divider", "/"), el("strong", "", this.screen === "goals" ? "\u0426\u0435\u043B\u0438" : this.screen === "habits" ? "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438" : SCOPES[this.screen]));
     const topButtons = el("div", "dl-inline");
     topButtons.append(button("\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C", () => {
       this.calendarOpen = !this.calendarOpen;
@@ -790,15 +790,14 @@ var Dashboard = class {
     else if (this.screen === "habits") content.append(this.habitsPage());
     else content.append(this.plannerPage(this.screen));
     main.append(content);
-    const bottom = el("footer", "dl-main-footer");
-    bottom.append(el("span", "", "\u041C\u0430\u043B\u0435\u043D\u044C\u043A\u0438\u0435 \u0448\u0430\u0433\u0438. \u0411\u043E\u043B\u044C\u0448\u0438\u0435 \u043F\u0435\u0440\u0435\u043C\u0435\u043D\u044B."), el("span", "dl-markdown-label", "\u0412\u0430\u0448\u0438 \u043F\u043B\u0430\u043D\u044B \xB7 \u0432\u0430\u0448 Markdown"));
-    main.append(bottom);
     return main;
   }
   pageHeader(eyebrow, title, subtitle, actions) {
     const header = el("header", "dl-page-header");
     const text = el("div");
-    text.append(el("div", "dl-eyebrow", eyebrow), el("h1", "", title), el("p", "dl-subtitle", subtitle));
+    if (eyebrow) text.append(el("div", "dl-eyebrow", eyebrow));
+    text.append(el("h1", "", title));
+    if (subtitle) text.append(el("p", "dl-subtitle", subtitle));
     const buttons = el("div", "dl-header-actions");
     buttons.append(...actions);
     header.append(text, buttons);
@@ -810,14 +809,12 @@ var Dashboard = class {
   }
   plannerPage(scope) {
     const page = el("div", "dl-planner");
-    const today = this.selected === dateKey();
-    const title = scope === "day" ? today ? "\u0425\u043E\u0440\u043E\u0448\u0438\u0439 \u0434\u0435\u043D\u044C \u0434\u043B\u044F \u0432\u0430\u0436\u043D\u044B\u0445 \u0434\u0435\u043B." : CAP(displayDate(this.selected, { weekday: "long" })) : scope === "week" ? "\u041D\u0435\u0434\u0435\u043B\u044F \u0441 \u043D\u0430\u043C\u0435\u0440\u0435\u043D\u0438\u0435\u043C." : scope === "month" ? "\u0414\u0435\u0440\u0436\u0438\u043C \u043A\u0443\u0440\u0441 \u043D\u0430 \u0433\u043B\u0430\u0432\u043D\u043E\u0435." : "\u0411\u043E\u043B\u044C\u0448\u0438\u0435 \u043F\u043B\u0430\u043D\u044B \u043D\u0430\u0447\u0438\u043D\u0430\u044E\u0442\u0441\u044F \u0437\u0434\u0435\u0441\u044C.";
     const period = scope === "day" ? displayDate(this.selected, { weekday: "long", day: "numeric", month: "long", year: "numeric" }) : scope === "week" ? `${displayDate(weekDays(this.selected)[0])} \u2014 ${displayDate(weekDays(this.selected)[6], { day: "numeric", month: "long", year: "numeric" })}` : scope === "month" ? displayDate(this.selected, { month: "long", year: "numeric" }) : `${this.selected.slice(0, 4)} \u0433\u043E\u0434`;
     const note = button("\u0417\u0430\u043C\u0435\u0442\u043A\u0430", () => {
       void this.action(async () => this.host.openFile(await this.store.ensureNote(scope, this.selected)));
     }, "dl-button dl-button-secondary", "file");
     const add = button("\u041D\u043E\u0432\u0430\u044F \u0437\u0430\u0434\u0430\u0447\u0430", () => this.taskDialog(), "dl-button dl-button-primary", "plus");
-    page.append(this.pageHeader(CAP(period), title, scope === "day" ? "\u041E\u0441\u0432\u043E\u0431\u043E\u0434\u0438\u0442\u0435 \u0433\u043E\u043B\u043E\u0432\u0443. \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0433\u043B\u0430\u0432\u043D\u043E\u0435. \u0414\u0432\u0438\u0433\u0430\u0439\u0442\u0435\u0441\u044C \u0432 \u0441\u0432\u043E\u0451\u043C \u0440\u0438\u0442\u043C\u0435." : "\u041E\u0442 \u0437\u0430\u043C\u044B\u0441\u043B\u0430 \u043A \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044E \u2014 \u043E\u0434\u0438\u043D \u043F\u043E\u043D\u044F\u0442\u043D\u044B\u0439 \u0448\u0430\u0433 \u0437\u0430 \u0434\u0440\u0443\u0433\u0438\u043C.", [note, add]));
+    page.append(this.pageHeader("", CAP(period), "", [note, add]));
     const timeline = el("div", "dl-period-navigation");
     timeline.append(button("\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => this.navigate(scope, stepPeriod(this.selected, scope, -1)), "dl-icon-button", "left"));
     if (scope === "day" || scope === "week") {
@@ -836,21 +833,18 @@ var Dashboard = class {
     const tasks = this.periodTasks(scope);
     const done = tasks.filter((t) => t.status === "done").length;
     const stats = el("div", "dl-stats");
-    const stat = (label, value, glyph, suffix) => {
+    const stat = (label, value, suffix = "") => {
       const card = el("div", "dl-stat");
-      const badge = el("div", "dl-stat-icon");
-      badge.append(icon(glyph));
-      const text = el("div");
-      text.append(el("span", "dl-stat-label", label));
+      card.append(el("span", "dl-stat-label", label));
       const number = el("div", "dl-stat-number");
-      number.append(el("strong", "", value), el("span", "", suffix));
-      text.append(number);
-      card.append(badge, text);
+      number.append(el("strong", "", value));
+      if (suffix) number.append(el("span", "", suffix));
+      card.append(number);
       return card;
     };
-    stats.append(stat("\u0412 \u0444\u043E\u043A\u0443\u0441\u0435", String(tasks.filter((t) => t.status === "open").length), "target", "\u0437\u0430\u0434\u0430\u0447"), stat("\u0423\u0436\u0435 \u0441\u0434\u0435\u043B\u0430\u043D\u043E", String(done), "check", `\u0438\u0437 ${tasks.length}`));
+    stats.append(stat("\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", String(tasks.filter((t) => t.status === "open").length)), stat("\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E", String(done), `\u0438\u0437 ${tasks.length}`));
     const habits = this.data.habits.filter((h) => !h.archived && habitDue(h.days, this.selected) && h.created <= this.selected);
-    stats.append(stat("\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", `${habits.filter((h) => h.completions.includes(this.selected)).length}/${habits.length}`, "leaf", "\u043D\u0430 \u0434\u0435\u043D\u044C"));
+    stats.append(stat("\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", `${habits.filter((h) => h.completions.includes(this.selected)).length}/${habits.length}`));
     page.append(stats);
     const columns = el("div", "dl-columns");
     const taskColumn = el("section", "dl-task-panel");
@@ -889,7 +883,7 @@ var Dashboard = class {
       }, "dl-button dl-button-secondary", "move"));
       taskColumn.append(banner);
     }
-    if (!visible.length) taskColumn.append(this.empty(this.query || this.filter !== "all" ? "\u0417\u0434\u0435\u0441\u044C \u043F\u043E\u043A\u0430 \u043F\u0443\u0441\u0442\u043E" : "\u041E\u0441\u0442\u0430\u0432\u044C\u0442\u0435 \u043C\u0435\u0441\u0442\u043E \u0434\u043B\u044F \u0433\u043B\u0430\u0432\u043D\u043E\u0433\u043E", this.query ? "\u041F\u043E\u043F\u0440\u043E\u0431\u0443\u0439\u0442\u0435 \u0434\u0440\u0443\u0433\u043E\u0439 \u043F\u043E\u0438\u0441\u043A\u043E\u0432\u044B\u0439 \u0437\u0430\u043F\u0440\u043E\u0441." : "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u043F\u0435\u0440\u0432\u0443\u044E \u0437\u0430\u0434\u0430\u0447\u0443 \u2014 \u0432\u0441\u0451 \u043E\u0441\u0442\u0430\u043B\u044C\u043D\u043E\u0435 \u043F\u043E\u0434\u043E\u0436\u0434\u0451\u0442.", "sun"));
+    if (!visible.length) taskColumn.append(this.empty(this.query ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u044B" : "\u041D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447", this.query ? "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u043E\u0438\u0441\u043A\u043E\u0432\u044B\u0439 \u0437\u0430\u043F\u0440\u043E\u0441." : "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0443 \u0432 \u043F\u043E\u043B\u0435 \u0432\u044B\u0448\u0435."));
     else {
       const sorted = [...visible].sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || { high: 0, normal: 1, low: 2 }[a.priority] - { high: 0, normal: 1, low: 2 }[b.priority] || a.scheduled.localeCompare(b.scheduled));
       const list = el("div", "dl-task-list");
@@ -905,15 +899,12 @@ var Dashboard = class {
       taskColumn.append(history);
     }
     const progress = el("div", "dl-task-progress");
-    progress.append(meter(tasks.length ? done / tasks.length * 100 : 0), el("span", "", tasks.length ? `${Math.round(done / tasks.length * 100)}% \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043D\u043E \xB7 \u043A\u0430\u0436\u0434\u044B\u0439 \u0448\u0430\u0433 \u0441\u0447\u0438\u0442\u0430\u0435\u0442\u0441\u044F` : "\u0412\u0430\u0448 \u0434\u0435\u043D\u044C, \u0432\u0430\u0448 \u0442\u0435\u043C\u043F"));
+    progress.append(meter(tasks.length ? done / tasks.length * 100 : 0), el("span", "", `${done} \u0438\u0437 ${tasks.length} \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E`));
     taskColumn.append(progress);
     const rail = el("aside", "dl-context-rail");
     rail.append(this.dailyHabits(habits));
     if (scope === "day") rail.append(this.weekFocus());
     else rail.append(this.goalPreview());
-    const tip = el("div", "dl-tip");
-    tip.append(icon("sparkle"), el("strong", "", "\u041F\u043B\u0430\u043D\u044B \u043C\u043E\u0433\u0443\u0442 \u043C\u0435\u043D\u044F\u0442\u044C\u0441\u044F"), el("p", "", this.store.settings.autoRollover ? "\u041D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0434\u043D\u044F \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438 \u0434\u043E\u0436\u0434\u0443\u0442\u0441\u044F \u0432\u0430\u0441 \u0441\u0435\u0433\u043E\u0434\u043D\u044F. \u0418\u0441\u0442\u043E\u0440\u0438\u044F \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u043E\u0432 \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u0441\u044F." : "\u0410\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D. \u0412\u044B \u043C\u043E\u0436\u0435\u0442\u0435 \u043C\u0435\u043D\u044F\u0442\u044C \u0434\u0430\u0442\u044B \u0437\u0430\u0434\u0430\u0447 \u0432\u0440\u0443\u0447\u043D\u0443\u044E \u0438\u043B\u0438 \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u044C \u0435\u0433\u043E \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445."));
-    rail.append(tip);
     columns.append(taskColumn, rail);
     page.append(columns);
     return page;
@@ -921,7 +912,7 @@ var Dashboard = class {
   quickAdd() {
     const form = el("form", "dl-quick-add");
     const plus = icon("plus");
-    const title = input(this.draft, "text", "\u0427\u0442\u043E \u0445\u043E\u0442\u0438\u0442\u0435 \u0441\u0434\u0435\u043B\u0430\u0442\u044C?");
+    const title = input(this.draft, "text", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443");
     title.dataset.focus = "quick";
     title.setAttribute("aria-label", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043D\u043E\u0432\u043E\u0439 \u0437\u0430\u0434\u0430\u0447\u0438");
     title.oninput = () => {
@@ -968,8 +959,8 @@ var Dashboard = class {
     const body = el("div", "dl-task-body");
     body.append(button(task.title, () => this.taskDialog(task), "dl-task-title"));
     const metadata = el("div", "dl-task-meta");
-    if (task.priority === "high") metadata.append(el("span", "dl-tag dl-tag-priority", "\u2191 \u0412\u0430\u0436\u043D\u043E"));
-    if (task.priority === "low") metadata.append(el("span", "dl-tag", "\u2193 \u0411\u0435\u0437 \u0441\u043F\u0435\u0448\u043A\u0438"));
+    if (task.priority === "high") metadata.append(el("span", "dl-tag dl-tag-priority", "\u2191 \u0412\u044B\u0441\u043E\u043A\u0438\u0439 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442"));
+    if (task.priority === "low") metadata.append(el("span", "dl-tag", "\u2193 \u041D\u0438\u0437\u043A\u0438\u0439 \u043F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442"));
     const goal = this.data.goals.find((g) => g.id === task.goal);
     if (goal) {
       const tag = el("span", "dl-task-goal");
@@ -985,8 +976,10 @@ var Dashboard = class {
     if (task.due) metadata.append(el("span", task.due < dateKey() && task.status === "open" ? "dl-late" : "", `\u0414\u043E ${displayDate(task.due)}`));
     const moved = task.history.filter((h) => h.type === "moved");
     if (moved.length) metadata.append(el("span", "dl-moved", `\u21AA \u0441 ${displayDate((_a = moved[0].from) != null ? _a : task.created)} \xB7 ${moved.length} \u043F\u0435\u0440\u0435\u043D\u043E\u0441${moved.length === 1 ? "" : "\u043E\u0432"}`));
+    const checkTarget = el("label", "dl-checkbox-target");
+    checkTarget.append(check);
     if (metadata.childElementCount) body.append(metadata);
-    row.append(check, body);
+    row.append(checkTarget, body);
     const menu = button("\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441 \u0437\u0430\u0434\u0430\u0447\u0435\u0439", () => this.taskActions(task), "dl-icon-button dl-row-menu", "dots");
     row.append(menu);
     return row;
@@ -1017,8 +1010,8 @@ var Dashboard = class {
   dailyHabits(habits) {
     const box = el("section", "dl-card");
     const header = el("div", "dl-section-header");
-    header.append(el("h2", "", "\u041C\u0430\u043B\u0435\u043D\u044C\u043A\u0438\u0435 \u0440\u0438\u0442\u0443\u0430\u043B\u044B"), button("\u0412\u0441\u0435 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", () => this.navigate("habits"), "dl-icon-button", "arrow"));
-    box.append(header, el("p", "dl-card-subtitle", "\u0417\u0430\u0431\u043E\u0442\u0430 \u043E \u0441\u0435\u0431\u0435 \u2014 \u0442\u043E\u0436\u0435 \u0447\u0430\u0441\u0442\u044C \u043F\u043B\u0430\u043D\u0430."));
+    header.append(el("h2", "", "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438"), button("\u0412\u0441\u0435 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", () => this.navigate("habits"), "dl-icon-button", "arrow"));
+    box.append(header);
     if (!habits.length) box.append(button("\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0443", () => this.habitDialog(), "dl-add-habit", "plus"));
     for (const habit of habits) {
       const done = habit.completions.includes(this.selected);
@@ -1037,36 +1030,32 @@ var Dashboard = class {
   }
   weekFocus() {
     const box = el("section", "dl-card dl-focus-card");
-    const label = el("div", "dl-eyebrow");
-    label.append(icon("week"), el("span", "", "\u0411\u041E\u041B\u042C\u0428\u0415, \u0427\u0415\u041C \u041E\u0414\u0418\u041D \u0414\u0415\u041D\u042C"));
-    box.append(label, el("h2", "", "\u0424\u043E\u043A\u0443\u0441 \u043D\u0435\u0434\u0435\u043B\u0438"));
+    box.append(el("h2", "", "\u041F\u043B\u0430\u043D\u044B \u043D\u0435\u0434\u0435\u043B\u0438"));
     const tasks = this.data.tasks.filter((t) => t.scope === "week" && t.status === "open" && inPeriod(t.scheduled, "week", this.selected));
     if (tasks.length) tasks.slice(0, 3).forEach((t) => box.append(button(t.title, () => this.taskDialog(t), "dl-focus-task", "target")));
-    else box.append(el("p", "", "\u0427\u0442\u043E \u0441\u0434\u0435\u043B\u0430\u0435\u0442 \u044D\u0442\u0443 \u043D\u0435\u0434\u0435\u043B\u044E \u0445\u043E\u0440\u043E\u0448\u0435\u0439? \u0412\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u043D\u0435\u0441\u043A\u043E\u043B\u044C\u043A\u043E \u0432\u0430\u0436\u043D\u044B\u0445 \u043E\u0440\u0438\u0435\u043D\u0442\u0438\u0440\u043E\u0432."));
+    else box.append(el("p", "", "\u041F\u043B\u0430\u043D\u043E\u0432 \u043D\u0430 \u043D\u0435\u0434\u0435\u043B\u044E \u043D\u0435\u0442."));
     box.append(button("\u041A \u043F\u043B\u0430\u043D\u0430\u043C \u043D\u0435\u0434\u0435\u043B\u0438", () => this.navigate("week"), "dl-text-button", "arrow"));
     return box;
   }
   goalPreview() {
     const box = el("section", "dl-card dl-focus-card");
-    box.append(el("div", "dl-eyebrow", "\u0414\u0415\u0420\u0416\u0410\u0422\u042C \u041A\u0423\u0420\u0421"), el("h2", "", "\u0412\u0430\u0448\u0438 \u043E\u0440\u0438\u0435\u043D\u0442\u0438\u0440\u044B"));
+    box.append(el("h2", "", "\u0426\u0435\u043B\u0438"));
     const goals = this.data.goals.filter((g) => g.status === "active");
-    if (!goals.length) box.append(el("p", "", "\u0421\u0432\u044F\u0436\u0438\u0442\u0435 \u043F\u043E\u0432\u0441\u0435\u0434\u043D\u0435\u0432\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0441 \u0442\u0435\u043C, \u0447\u0442\u043E \u0434\u043B\u044F \u0432\u0430\u0441 \u0432\u0430\u0436\u043D\u043E."));
+    if (!goals.length) box.append(el("p", "", "\u0410\u043A\u0442\u0438\u0432\u043D\u044B\u0445 \u0446\u0435\u043B\u0435\u0439 \u043D\u0435\u0442."));
     goals.slice(0, 3).forEach((g) => box.append(button(g.title, () => this.goalDialog(g), "dl-focus-task", "target")));
     box.append(button("\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0446\u0435\u043B\u0438", () => this.navigate("goals"), "dl-text-button", "arrow"));
     return box;
   }
-  empty(title, subtitle, glyph) {
+  empty(title, subtitle) {
     const box = el("div", "dl-empty");
-    const badge = el("div", "dl-empty-icon");
-    badge.append(icon(glyph));
-    box.append(badge, el("h3", "", title), el("p", "", subtitle));
+    box.append(el("h3", "", title), el("p", "", subtitle));
     return box;
   }
   goalsPage() {
     const page = el("div");
-    page.append(this.pageHeader("\u041D\u0410\u041F\u0420\u0410\u0412\u041B\u0415\u041D\u0418\u0415 \u0412\u0410\u0416\u041D\u0415\u0415 \u0421\u041A\u041E\u0420\u041E\u0421\u0422\u0418", "\u0422\u043E, \u043A \u0447\u0435\u043C\u0443 \u0445\u043E\u0447\u0435\u0442\u0441\u044F \u043F\u0440\u0438\u0439\u0442\u0438.", "\u0421\u0432\u044F\u0437\u044B\u0432\u0430\u0439\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0441 \u0446\u0435\u043B\u044F\u043C\u0438 \u0438 \u0437\u0430\u043C\u0435\u0447\u0430\u0439\u0442\u0435 \u0441\u0432\u043E\u0439 \u043F\u0440\u043E\u0433\u0440\u0435\u0441\u0441.", [button("\u041D\u043E\u0432\u0430\u044F \u0446\u0435\u043B\u044C", () => this.goalDialog(), "dl-button dl-button-primary", "plus")]));
+    page.append(this.pageHeader("", "\u0426\u0435\u043B\u0438", "", [button("\u041D\u043E\u0432\u0430\u044F \u0446\u0435\u043B\u044C", () => this.goalDialog(), "dl-button dl-button-primary", "plus")]));
     const goals = this.data.goals.filter((g) => g.status !== "archived");
-    if (!goals.length) page.append(this.empty("\u041A\u0430\u043A\u0430\u044F \u0443 \u0432\u0430\u0441 \u0431\u043E\u043B\u044C\u0448\u0430\u044F \u0438\u0434\u0435\u044F?", "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0446\u0435\u043B\u044C, \u0430 \u0437\u0430\u0442\u0435\u043C \u0440\u0430\u0437\u0431\u0435\u0439\u0442\u0435 \u0435\u0451 \u043D\u0430 \u043F\u043E\u0441\u0438\u043B\u044C\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438.", "target"));
+    if (!goals.length) page.append(this.empty("\u041D\u0435\u0442 \u0446\u0435\u043B\u0435\u0439", "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0446\u0435\u043B\u044C \u0438 \u0441\u0432\u044F\u0436\u0438\u0442\u0435 \u0441 \u043D\u0435\u0439 \u0437\u0430\u0434\u0430\u0447\u0438."));
     const grid = el("div", "dl-goal-grid");
     for (const goal of goals) {
       const tasks = this.data.tasks.filter((t) => t.goal === goal.id && t.status !== "cancelled");
@@ -1074,23 +1063,21 @@ var Dashboard = class {
       const progress = tasks.length ? done / tasks.length * 100 : 0;
       const card = el("section", `dl-goal-card ${goal.status === "done" ? "is-done" : ""}`);
       const top = el("div", "dl-section-header");
-      const badge = el("div", "dl-goal-icon");
-      badge.append(icon(goal.status === "done" ? "check" : "target"));
-      top.append(badge, button("\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0446\u0435\u043B\u044C", () => this.goalDialog(goal), "dl-icon-button", "dots"));
-      card.append(top, el("span", "dl-goal-state", goal.status === "done" ? "\u0414\u041E\u0421\u0422\u0418\u0413\u041D\u0423\u0422\u0410" : "\u0412 \u041F\u0423\u0422\u0418"), el("h2", "", goal.title));
+      top.append(el("span", "dl-goal-state", goal.status === "done" ? "\u0414\u043E\u0441\u0442\u0438\u0433\u043D\u0443\u0442\u0430" : "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435"), button("\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0446\u0435\u043B\u044C", () => this.goalDialog(goal), "dl-icon-button", "dots"));
+      card.append(top, el("h2", "", goal.title));
       if (goal.description) card.append(el("p", "dl-goal-description", goal.description));
       card.append(meter(goal.status === "done" ? 100 : progress));
       const numbers = el("div", "dl-goal-numbers");
       numbers.append(el("strong", "", `${goal.status === "done" ? 100 : Math.round(progress)}%`), el("span", "", `${done} \u0438\u0437 ${tasks.length} \u0437\u0430\u0434\u0430\u0447`));
       card.append(numbers);
-      if (goal.target) card.append(el("p", `dl-goal-date ${goal.target < dateKey() && goal.status === "active" ? "dl-late" : ""}`, `\u041E\u0440\u0438\u0435\u043D\u0442\u0438\u0440: ${displayDate(goal.target, { day: "numeric", month: "long", year: "numeric" })}`));
+      if (goal.target) card.append(el("p", `dl-goal-date ${goal.target < dateKey() && goal.status === "active" ? "dl-late" : ""}`, `\u0421\u0440\u043E\u043A: ${displayDate(goal.target, { day: "numeric", month: "long", year: "numeric" })}`));
       if (tasks.length) {
         const linked = el("details", "dl-linked-tasks");
         linked.append(el("summary", "", "\u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438"));
         tasks.forEach((task) => linked.append(this.taskRow(task, true)));
         card.append(linked);
       }
-      card.append(button("\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0448\u0430\u0433", () => this.taskDialog(void 0, goal.id), "dl-text-button", "plus"));
+      card.append(button("\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443", () => this.taskDialog(void 0, goal.id), "dl-text-button", "plus"));
       grid.append(card);
     }
     page.append(grid);
@@ -1098,7 +1085,7 @@ var Dashboard = class {
   }
   habitsPage() {
     const page = el("div");
-    page.append(this.pageHeader("\u041F\u041E\u0421\u0422\u041E\u042F\u041D\u0421\u0422\u0412\u041E \u0411\u0415\u0417 \u041F\u0415\u0420\u0424\u0415\u041A\u0426\u0418\u041E\u041D\u0418\u0417\u041C\u0410", "\u0422\u043E, \u0447\u0442\u043E \u0434\u0435\u043B\u0430\u0435\u0442 \u0432\u0430\u0441 \u043B\u0443\u0447\u0448\u0435.", "\u041E\u0442\u043C\u0435\u0447\u0430\u0439\u0442\u0435 \u043C\u0430\u043B\u0435\u043D\u044C\u043A\u0438\u0435 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044F. \u041E\u0434\u0438\u043D \u043F\u0440\u043E\u043F\u0443\u0441\u043A \u043D\u0435 \u043E\u0442\u043C\u0435\u043D\u044F\u0435\u0442 \u0432\u0435\u0441\u044C \u043F\u0443\u0442\u044C.", [button("\u041D\u043E\u0432\u0430\u044F \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0430", () => this.habitDialog(), "dl-button dl-button-primary", "plus")]));
+    page.append(this.pageHeader("", "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438", "", [button("\u041D\u043E\u0432\u0430\u044F \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0430", () => this.habitDialog(), "dl-button dl-button-primary", "plus")]));
     const nav = el("div", "dl-habit-week-nav");
     nav.append(button("\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F \u043D\u0435\u0434\u0435\u043B\u044F", () => {
       this.selected = shiftDay(this.selected, -7);
@@ -1109,7 +1096,7 @@ var Dashboard = class {
     }, "dl-icon-button", "right"));
     page.append(nav);
     const habits = this.data.habits.filter((h) => !h.archived);
-    if (!habits.length) page.append(this.empty("\u041D\u0430\u0447\u043D\u0438\u0442\u0435 \u0441 \u0447\u0435\u0433\u043E-\u0442\u043E \u043D\u0435\u0431\u043E\u043B\u044C\u0448\u043E\u0433\u043E", "\u0421\u0442\u0430\u043A\u0430\u043D \u0432\u043E\u0434\u044B, \u0434\u0435\u0441\u044F\u0442\u044C \u0441\u0442\u0440\u0430\u043D\u0438\u0446 \u0438\u043B\u0438 \u043A\u043E\u0440\u043E\u0442\u043A\u0430\u044F \u043F\u0440\u043E\u0433\u0443\u043B\u043A\u0430 \u2014 \u0440\u0435\u0448\u0430\u0442\u044C \u0432\u0430\u043C.", "leaf"));
+    if (!habits.length) page.append(this.empty("\u041D\u0435\u0442 \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A", "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0443 \u0438 \u0432\u044B\u0431\u0435\u0440\u0438\u0442\u0435 \u0434\u043D\u0438 \u043D\u0435\u0434\u0435\u043B\u0438."));
     const tableWrap = el("div", "dl-habit-table-wrap");
     const table = el("table", "dl-habit-table");
     const thead = el("thead");
@@ -1150,7 +1137,7 @@ var Dashboard = class {
     tableWrap.append(table);
     if (habits.length) page.append(tableWrap);
     const history = el("section", "dl-card dl-history");
-    history.append(el("div", "dl-eyebrow", "\u041F\u041E\u0421\u041B\u0415\u0414\u041D\u0418\u0415 12 \u041D\u0415\u0414\u0415\u041B\u042C"), el("h2", "", "\u0420\u0438\u0442\u043C \u0432\u0430\u0448\u0438\u0445 \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A"));
+    history.append(el("h2", "", "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430 12 \u043D\u0435\u0434\u0435\u043B\u044C"));
     const heatmap = el("div", "dl-heatmap");
     for (let offset = -83; offset <= 0; offset++) {
       const date = shiftDay(dateKey(), offset);
@@ -1167,7 +1154,7 @@ var Dashboard = class {
     return page;
   }
   taskDialog(task, goalId) {
-    this.host.dialog(task ? "\u0412\u0441\u0451 \u043D\u0430\u0447\u0438\u043D\u0430\u0435\u0442\u0441\u044F \u0441 \u043E\u0434\u043D\u043E\u0433\u043E \u0448\u0430\u0433\u0430" : "\u0427\u0442\u043E \u0445\u043E\u0447\u0435\u0442\u0441\u044F \u0441\u0434\u0435\u043B\u0430\u0442\u044C?", (body, close) => {
+    this.host.dialog(task ? "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443" : "\u041D\u043E\u0432\u0430\u044F \u0437\u0430\u0434\u0430\u0447\u0430", (body, close) => {
       var _a, _b, _c, _d, _e, _f, _g, _h, _i;
       const form = el("form", "dl-form");
       const title = input((_a = task == null ? void 0 : task.title) != null ? _a : this.draft, "text", "\u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u043D\u0430\u0431\u0440\u043E\u0441\u0430\u0442\u044C \u043F\u043B\u0430\u043D \u043F\u0440\u043E\u0435\u043A\u0442\u0430");
@@ -1184,7 +1171,7 @@ var Dashboard = class {
       });
       const goal = select(goals, (_g = (_f = task == null ? void 0 : task.goal) != null ? _f : goalId) != null ? _g : "");
       const due = input((_h = task == null ? void 0 : task.due) != null ? _h : "", "date");
-      const notes = textarea((_i = task == null ? void 0 : task.description) != null ? _i : "", "\u041A\u043E\u043D\u0442\u0435\u043A\u0441\u0442, \u0441\u0441\u044B\u043B\u043A\u0438, \u043D\u0435\u0431\u043E\u043B\u044C\u0448\u0438\u0435 \u0448\u0430\u0433\u0438. \u041C\u043E\u0436\u043D\u043E \u0438\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u0442\u044C Markdown.");
+      const notes = textarea((_i = task == null ? void 0 : task.description) != null ? _i : "", "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0438 \u0441\u0441\u044B\u043B\u043A\u0438. \u041F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F Markdown.");
       const grid = el("div", "dl-form-grid");
       grid.append(field("\u0414\u0430\u0442\u0430 \u043F\u043B\u0430\u043D\u0430", scheduled), field("\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442", scope), field("\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442", priority), field("\u041F\u043E\u0432\u0442\u043E\u0440\u0435\u043D\u0438\u0435", repeat), field("\u0421\u0440\u043E\u043A (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)", due), field("\u0426\u0435\u043B\u044C", goal));
       form.append(field("\u0417\u0430\u0434\u0430\u0447\u0430", title), grid, field("\u0417\u0430\u043C\u0435\u0442\u043A\u0438", notes));
@@ -1215,15 +1202,15 @@ var Dashboard = class {
     });
   }
   goalDialog(goal) {
-    this.host.dialog(goal ? "\u0412\u0430\u0448 \u043E\u0440\u0438\u0435\u043D\u0442\u0438\u0440" : "\u041A \u0447\u0435\u043C\u0443 \u0445\u043E\u0447\u0435\u0442\u0441\u044F \u043F\u0440\u0438\u0439\u0442\u0438?", (body, close) => {
+    this.host.dialog(goal ? "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0446\u0435\u043B\u044C" : "\u041D\u043E\u0432\u0430\u044F \u0446\u0435\u043B\u044C", (body, close) => {
       var _a, _b, _c, _d;
       const form = el("form", "dl-form");
       const title = input((_a = goal == null ? void 0 : goal.title) != null ? _a : "", "text", "\u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u043F\u0440\u043E\u0431\u0435\u0436\u0430\u0442\u044C \u043F\u0435\u0440\u0432\u044B\u0435 10 \u043A\u043C");
       title.required = true;
       const target = input((_b = goal == null ? void 0 : goal.target) != null ? _b : "", "date");
-      const status = select({ active: "\u0412 \u043F\u0443\u0442\u0438", done: "\u0414\u043E\u0441\u0442\u0438\u0433\u043D\u0443\u0442\u0430", archived: "\u0412 \u0430\u0440\u0445\u0438\u0432\u0435" }, (_c = goal == null ? void 0 : goal.status) != null ? _c : "active");
-      const notes = textarea((_d = goal == null ? void 0 : goal.description) != null ? _d : "", "\u041F\u043E\u0447\u0435\u043C\u0443 \u044D\u0442\u043E \u0432\u0430\u0436\u043D\u043E \u0434\u043B\u044F \u0432\u0430\u0441? \u041A\u0430\u043A \u0432\u044B\u0433\u043B\u044F\u0434\u0438\u0442 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442?");
-      form.append(field("\u0426\u0435\u043B\u044C", title), field("\u041E\u0440\u0438\u0435\u043D\u0442\u0438\u0440 \u043F\u043E \u0434\u0430\u0442\u0435", target));
+      const status = select({ active: "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", done: "\u0414\u043E\u0441\u0442\u0438\u0433\u043D\u0443\u0442\u0430", archived: "\u0412 \u0430\u0440\u0445\u0438\u0432\u0435" }, (_c = goal == null ? void 0 : goal.status) != null ? _c : "active");
+      const notes = textarea((_d = goal == null ? void 0 : goal.description) != null ? _d : "", "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0446\u0435\u043B\u0438 \u0438 \u043A\u0440\u0438\u0442\u0435\u0440\u0438\u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u044F.");
+      form.append(field("\u0426\u0435\u043B\u044C", title), field("\u0421\u0440\u043E\u043A", target));
       if (goal) form.append(field("\u0421\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435", status));
       form.append(field("\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435", notes), el("p", "dl-form-hint", "\u041F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0440\u0430\u0441\u0441\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043F\u043E \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u043C \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u043C \u0437\u0430\u0434\u0430\u0447\u0430\u043C. \u0414\u043E\u0441\u0442\u0438\u0436\u0435\u043D\u0438\u0435 \u0446\u0435\u043B\u0438 \u043C\u043E\u0436\u043D\u043E \u043E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E."));
       this.formActions(form, close, () => this.store.saveGoal({ path: goal == null ? void 0 : goal.path, title: title.value, target: target.value, description: notes.value, status: status.value }), "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0446\u0435\u043B\u044C", goal ? button("Markdown", () => {
@@ -1234,12 +1221,12 @@ var Dashboard = class {
     });
   }
   habitDialog(habit) {
-    this.host.dialog(habit ? "\u0412\u0430\u0448 \u043C\u0430\u043B\u0435\u043D\u044C\u043A\u0438\u0439 \u0440\u0438\u0442\u0443\u0430\u043B" : "\u041D\u043E\u0432\u0430\u044F \u043F\u043E\u043B\u0435\u0437\u043D\u0430\u044F \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0430", (body, close) => {
+    this.host.dialog(habit ? "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0443" : "\u041D\u043E\u0432\u0430\u044F \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0430", (body, close) => {
       var _a, _b, _c;
       const form = el("form", "dl-form");
       const title = input((_a = habit == null ? void 0 : habit.title) != null ? _a : "", "text", "\u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, 20 \u043C\u0438\u043D\u0443\u0442 \u0447\u0442\u0435\u043D\u0438\u044F");
       title.required = true;
-      const notes = textarea((_b = habit == null ? void 0 : habit.description) != null ? _b : "", "\u0421\u0434\u0435\u043B\u0430\u0439\u0442\u0435 \u043F\u0435\u0440\u0432\u044B\u0439 \u0448\u0430\u0433 \u043D\u0430\u0441\u0442\u043E\u043B\u044C\u043A\u043E \u043C\u0430\u043B\u0435\u043D\u044C\u043A\u0438\u043C, \u0447\u0442\u043E\u0431\u044B \u043D\u0430\u0447\u0430\u0442\u044C \u0431\u044B\u043B\u043E \u043B\u0435\u0433\u043A\u043E.");
+      const notes = textarea((_b = habit == null ? void 0 : habit.description) != null ? _b : "", "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438.");
       const days = new Set((_c = habit == null ? void 0 : habit.days) != null ? _c : [0, 1, 2, 3, 4, 5, 6]);
       const choices = el("div", "dl-day-choices");
       WEEKDAYS.forEach((name, i) => {
@@ -1536,7 +1523,7 @@ var PlannerSettings = class extends import_obsidian2.PluginSettingTab {
     this.renderInto(this.containerEl);
   }
   renderInto(container) {
-    container.append(el("h2", "", "Dayline"), el("p", "dl-subtitle", "\u041F\u043B\u0430\u043D\u044B \u0436\u0438\u0432\u0443\u0442 \u0432 \u0432\u0430\u0448\u0435\u043C \u0445\u0440\u0430\u043D\u0438\u043B\u0438\u0449\u0435. \u0412\u044B \u0432\u044B\u0431\u0438\u0440\u0430\u0435\u0442\u0435, \u0433\u0434\u0435 \u0438\u043C\u0435\u043D\u043D\u043E."));
+    container.append(el("h2", "", "Dayline"));
     let root = this.plugin.settings.root;
     new import_obsidian2.Setting(container).setName("\u041F\u0430\u043F\u043A\u0430 \u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0449\u0438\u043A\u0430").setDesc("\u041F\u0440\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0438 \u0432\u0441\u0435 \u0444\u0430\u0439\u043B\u044B Dayline \u043F\u0435\u0440\u0435\u0435\u0434\u0443\u0442 \u0432 \u043D\u043E\u0432\u0443\u044E \u043F\u0430\u043F\u043A\u0443 \u0441 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435\u043C \u0441\u0441\u044B\u043B\u043E\u043A. \u0421\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u044F \u0438\u043C\u0451\u043D \u043E\u0442\u043C\u0435\u043D\u044F\u044E\u0442 \u043F\u0435\u0440\u0435\u043D\u043E\u0441.").addText((text) => text.setValue(root).setPlaceholder("_todotracking").onChange((value) => {
       root = value;

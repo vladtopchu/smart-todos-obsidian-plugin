@@ -130,7 +130,7 @@ class PlannerSettings extends PluginSettingTab {
   constructor(app: App, private plugin: DaylinePlugin) { super(app, plugin); }
   display(): void { this.containerEl.empty(); this.renderInto(this.containerEl); }
   renderInto(container: HTMLElement): void {
-    container.append(el('h2', '', 'Dayline'), el('p', 'dl-subtitle', 'Планы живут в вашем хранилище. Вы выбираете, где именно.'));
+    container.append(el('h2', '', 'Dayline'));
     let root = this.plugin.settings.root;
     new Setting(container).setName('Папка планировщика').setDesc('При сохранении все файлы Dayline переедут в новую папку с обновлением ссылок. Совпадения имён отменяют перенос.').addText(text => text.setValue(root).setPlaceholder('_todotracking').onChange(value => { root = value; })).addButton(btn => btn.setButtonText('Сохранить папку').onClick(async () => {
       btn.setDisabled(true);
