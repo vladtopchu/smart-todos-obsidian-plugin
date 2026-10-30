@@ -7,7 +7,7 @@ if (argument < 0 || !process.argv[argument + 1]) { console.error('Использ
 const vault = path.resolve(process.argv[argument + 1]);
 if (!(await stat(path.join(vault, '.obsidian')).catch(() => null))?.isDirectory()) { console.error('Не найден каталог .obsidian: укажите корень существующего хранилища.'); process.exit(1); }
 const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
-if (manifest.id !== 'smart-todo-vlad' || manifest.name !== 'Smart Todo') throw new Error('Неверный ID или название личной сборки Smart Todo. Установка остановлена.');
+if (manifest.id !== 'smart-todos' || manifest.name !== 'Smart Todo') throw new Error('Неверный ID или название личной сборки Smart Todo. Установка остановлена.');
 const destination = path.join(vault, '.obsidian', 'plugins', manifest.id);
 const filenames = ['main.js', 'manifest.json', 'styles.css'];
 for (const name of filenames) if (!(await stat(path.join(root, name)).catch(() => null))?.isFile()) { console.error('Сначала выполните npm run build'); process.exit(1); }
