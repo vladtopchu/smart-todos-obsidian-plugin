@@ -1,0 +1,13 @@
+import { mkdir, copyFile, readFile, rm } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
+const destination = path.join(root, 'dist', manifest.id);
+await mkdir(destination, { recursive: true });
+for (const filename of ['main.js', 'manifest.json', 'styles.css']) await copyFile(path.join(root, filename), path.join(destination, filename));
+const archive = `dayline-${manifest.version}.zip`;
+await rm(path.join(root, 'dist', archive), { force: true });
+execFileSync('zip', ['-qr', archive, manifest.id], { cwd: path.join(root, 'dist') });
+console.log(`Готово: ${path.join(root, 'dist', archive)}`);

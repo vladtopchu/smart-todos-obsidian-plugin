@@ -1,0 +1,11 @@
+html, body { margin: 0; min-width: 320px; height: 100%; background: #fafbf8; }
+body { -webkit-font-smoothing: antialiased; }
+#app { min-height: 100dvh; height: auto; }
+button, input, textarea, select { font: inherit; }
+.demo-dialog { padding: 26px; border: 1px solid var(--dl-line); border-radius: 13px; background: var(--dl-surface); max-height: 90dvh; overflow-y: auto; box-shadow: 0 25px 100px #172c272b; }
+.demo-dialog::backdrop { background: #1c302e45; backdrop-filter: blur(3px); }
+.demo-dialog-header { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
+.demo-dialog-header h2 { font-size: 19px; font-weight: 550; margin: 0; }
+.demo-dialog .dl-dialog { display: flex; flex-direction: column; gap: 14px; }
+.demo-toast { position: fixed; z-index: 100; bottom: 24px; left: 50%; transform: translateX(-50%); background: #263d32; color: #fff; padding: 13px 23px; border-radius: 9px; font: 13px -apple-system, sans-serif; max-width: calc(100vw - 40px); box-shadow: 0 8px 30px #263d3220; }
+.demo-source { min-height: 45vh; width: 100%; min-width: 0; padding: 15px; background: var(--dl-bg); color: var(--dl-ink); border: 1px solid var(--dl-line); border-radius: 7px; font: 12px/1.6 monospace; resize: vertical; white-space: pre; }

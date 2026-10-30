@@ -1,0 +1,9 @@
+{
+  "id": "dayline",
+  "name": "Dayline",
+  "version": "1.0.0",
+  "minAppVersion": "1.8.0",
+  "description": "Календарь, задачи с автопереносом, планы, цели и привычки в обычных Markdown-файлах.",
+  "author": "Dayline",
+  "isDesktopOnly": false
+}

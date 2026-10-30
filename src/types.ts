@@ -1,0 +1,58 @@
+export type Scope = 'day' | 'week' | 'month' | 'year';
+export type Screen = Scope | 'goals' | 'habits';
+export type Priority = 'normal' | 'high' | 'low';
+export type Recurrence = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly';
+export interface Task {
+  id: string;
+  path: string;
+  title: string;
+  status: 'open' | 'done' | 'cancelled';
+  scheduled: string;
+  scope: Scope;
+  priority: Priority;
+  recurrence: Recurrence;
+  goal: string;
+  due: string;
+  created: string;
+  completed: string;
+  history: { type: 'moved' | 'completed' | 'reopened'; date: string; from?: string }[];
+  description: string;
+  archived?: boolean;
+}
+export interface Goal {
+  id: string;
+  path: string;
+  title: string;
+  target: string;
+  status: 'active' | 'done' | 'archived';
+  description: string;
+}
+export interface Habit {
+  id: string;
+  path: string;
+  title: string;
+  days: number[];
+  completions: string[];
+  created: string;
+  archived: boolean;
+  description: string;
+}
+export interface Settings {
+  root: string;
+  autoRollover: boolean;
+  showCompleted: boolean;
+}
+export const DEFAULT_SETTINGS: Settings = { root: '_todotracking', autoRollover: true, showCompleted: true };
+export interface Snapshot { tasks: Task[]; goals: Goal[]; habits: Habit[]; warnings: string[] }
+export interface Storage {
+  list(): string[] | Promise<string[]>;
+  read(path: string): Promise<string>;
+  create(path: string, content: string): Promise<void>;
+  process(path: string, update: (content: string) => string): Promise<void>;
+  exists(path: string): boolean | Promise<boolean>;
+  move(from: string, to: string): Promise<void>;
+}
+export interface Codec {
+  parse(text: string): Record<string, unknown>;
+  stringify(value: Record<string, unknown>): string;
+}
