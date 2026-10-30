@@ -1,6 +1,6 @@
 {
-  "name": "obsidian-dayline",
-  "version": "1.0.0",
+  "name": "obsidian-smart-todo-vlad",
+  "version": "1.0.1",
   "private": true,
   "description": "Markdown-first planning, tasks, goals and habits for Obsidian",
   "scripts": {

@@ -1,5 +1,6 @@
 import type { PlannerStore } from './store';
 import { importId } from './ids';
+import { entityType } from './identity';
 
 export function legacyTasks(text: string): { title: string; line: number }[] {
   const result: { title: string; line: number }[] = []; let fence = ''; let frontmatter = false;
@@ -10,7 +11,7 @@ export function legacyTasks(text: string): { title: string; line: number }[] {
     if (marker) { if (!fence) fence = marker; else if (marker[0] === fence[0] && marker.length >= fence.length) fence = ''; return; }
     if (fence) return;
     const match = /^\s*[-*+] \[ \] (.+)$/.exec(line);
-    if (match && !match[1]!.includes('<!-- dayline:task -->')) result.push({ title: match[1]!.trim(), line: i + 1 });
+    if (match && !/<!-- (?:smart-todo|dayline):task -->/.test(match[1]!)) result.push({ title: match[1]!.trim(), line: i + 1 });
   }); return result;
 }
 export async function importLegacy(store: PlannerStore, source: string, text: string, today: string): Promise<number> {
@@ -26,9 +27,9 @@ export async function importLegacy(store: PlannerStore, source: string, text: st
       if (frontmatter && store.codec.parse(frontmatter[1]!).importKey === importKey) continue;
       throw new Error(`Конфликт импорта: ${path}. Существующий файл сохранён.`);
     }
-    const data = { type: 'dayline-task', id, title: item.title, status: 'open', scheduled: today, scope: 'day', priority: 'normal', recurrence: 'none', goal: '', due: '', created: today, completed: '', history: [], source, importKey };
+    const data = { type: entityType('task'), id, title: item.title, status: 'open', scheduled: today, scope: 'day', priority: 'normal', recurrence: 'none', goal: '', due: '', created: today, completed: '', history: [], source, importKey };
     const sourceLink = source.replace(/\.md$/, '');
-    const body = `- [ ] ${item.title} <!-- dayline:task -->\n\nИсточник: [[${sourceLink}]] (строка ${item.line}).\n`;
+    const body = `- [ ] ${item.title} <!-- smart-todo:task -->\n\nИсточник: [[${sourceLink}]] (строка ${item.line}).\n`;
     await store.storage.create(path, `---\n${store.codec.stringify(data).trim()}\n---\n${body}`); count++;
   }
   return count;

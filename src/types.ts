@@ -10,6 +10,7 @@ export interface Task {
   title: string;
   status: 'open' | 'done' | 'cancelled';
   scheduled: string;
+  initialScheduled: string;
   scope: Scope;
   priority: Priority;
   recurrence: Recurrence;
@@ -18,7 +19,7 @@ export interface Task {
   due: string;
   created: string;
   completed: string;
-  history: { type: 'moved' | 'completed' | 'reopened' | 'cancelled'; date: string; from?: string }[];
+  history: { type: 'moved' | 'completed' | 'reopened' | 'cancelled'; date: string; from?: string; to?: string; at?: string; effectiveAt?: string; automatic?: boolean }[];
   description: string;
   archived?: boolean;
 }

@@ -3,6 +3,11 @@ import type { Recurrence, Scope } from './types';
 export function dateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
+export function nextNoon(now: Date): Date {
+  const next = new Date(now); next.setHours(12, 0, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  return next;
+}
 export function parseDate(value: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`Некорректная дата: ${value}`);
   const [y, m, d] = value.split('-').map(Number) as [number, number, number];
@@ -33,6 +38,12 @@ export function periodKey(scope: Scope, value: string): string {
   return scope === 'day' ? value : scope === 'week' ? isoWeek(value) : scope === 'month' ? value.slice(0, 7) : value.slice(0, 4);
 }
 export function inPeriod(date: string, scope: Scope, selected: string): boolean { return periodKey(scope, date) === periodKey(scope, selected); }
+export function periodBounds(scope: Scope, selected: string): { start: string; end: string } {
+  if (scope === 'day') return { start: selected, end: selected };
+  if (scope === 'week') return { start: weekStart(selected), end: shiftDay(weekStart(selected), 6) };
+  const start = scope === 'month' ? selected.slice(0, 7) + '-01' : selected.slice(0, 4) + '-01-01';
+  return { start, end: shiftDay(stepPeriod(start, scope, 1), -1) };
+}
 export function stepPeriod(value: string, scope: Scope, offset: number): string {
   if (scope === 'day' || scope === 'week') return shiftDay(value, offset * (scope === 'week' ? 7 : 1));
   const date = parseDate(value);

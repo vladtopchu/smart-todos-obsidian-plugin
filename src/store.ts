@@ -1,10 +1,11 @@
-import { dateKey, habitDue, nextOccurrence, periodKey, validDate } from './dates';
+import { dateKey, habitDue, nextOccurrence, parseDate, periodKey, shiftDay, validDate } from './dates';
 import type { Codec, Goal, Habit, Settings, Snapshot, Storage, Task, Scope } from './types';
 import { newId } from './ids';
 import { normalizeLabels } from './labels';
+import { entityType, matchesEntityType } from './identity';
 
 interface Document { data: Record<string, unknown>; body: string }
-const TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- dayline:task -->[ \t]*$/m;
+const TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- (?:smart-todo|dayline):task -->[ \t]*$/m;
 const str = (v: unknown, fallback = ''): string => typeof v === 'string' ? v : fallback;
 const pick = <T extends string>(v: unknown, options: readonly T[], fallback: T): T => options.includes(v as T) ? v as T : fallback;
 const singleLine = (value: string): string => value.replace(/[\r\n]+/g, ' ').trim();
@@ -17,7 +18,7 @@ export function normalizeRoot(input: string): string {
 }
 export class PlannerStore {
   private queue: Promise<unknown> = Promise.resolve();
-  constructor(readonly storage: Storage, readonly codec: Codec, public settings: Settings, private now = () => dateKey()) {
+  constructor(readonly storage: Storage, readonly codec: Codec, public settings: Settings, private now = () => dateKey(), private clock = () => new Date()) {
     settings.root = normalizeRoot(settings.root);
   }
   private serial<T>(action: () => Promise<T>): Promise<T> {
@@ -39,7 +40,7 @@ export class PlannerStore {
     const history = Array.isArray(d.history) ? d.history.filter((h): h is Task['history'][number] => !!h && typeof h === 'object' && validDate(h.date) && ['moved', 'completed', 'reopened', 'cancelled'].includes(h.type)) : [];
     return {
       id: str(d.id), path, title: line?.[2] ?? str(d.title, 'Без названия'), status,
-      scheduled: d.scheduled, scope: pick(d.scope, ['day', 'week', 'month', 'year'], 'day'),
+      scheduled: d.scheduled, initialScheduled: validDate(d.initialScheduled) ? d.initialScheduled : history.find(h => h.type === 'moved' && validDate(h.from))?.from ?? d.scheduled, scope: pick(d.scope, ['day', 'week', 'month', 'year'], 'day'),
       priority: pick(d.priority, ['normal', 'high', 'low'], 'normal'),
       recurrence: pick(d.recurrence, ['none', 'daily', 'weekdays', 'weekly', 'monthly'], 'none'),
       goal: str(d.goal), labels: normalizeLabels(d.labels), due: validDate(d.due) ? d.due : '', created: validDate(d.created) ? d.created : d.scheduled,
@@ -64,9 +65,9 @@ export class PlannerStore {
       if (!/^(tasks|goals|habits)\/[^/]+\.md$/.test(relative)) return;
       try {
         const doc = this.decode(await this.storage.read(path));
-        if (doc.data.type === 'dayline-task') result.tasks.push(this.task(doc, path));
-        else if (doc.data.type === 'dayline-goal') result.goals.push(this.goal(doc, path));
-        else if (doc.data.type === 'dayline-habit') result.habits.push(this.habit(doc, path));
+        if (matchesEntityType(doc.data.type, 'task')) result.tasks.push(this.task(doc, path));
+        else if (matchesEntityType(doc.data.type, 'goal')) result.goals.push(this.goal(doc, path));
+        else if (matchesEntityType(doc.data.type, 'habit')) result.habits.push(this.habit(doc, path));
       } catch (error) { result.warnings.push(`${path}: ${error instanceof Error ? error.message : String(error)}`); }
     }));
     result.tasks.sort((a, b) => a.scheduled.localeCompare(b.scheduled) || a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
@@ -80,8 +81,8 @@ export class PlannerStore {
     if (!validDate(input.scheduled) || (input.due && !validDate(input.due))) throw new Error('Проверьте дату');
     return this.serial(async () => {
       const id = newId(); const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: 'dayline-task', id, title, status: 'open', scheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', goal: input.goal ?? '', labels: normalizeLabels(input.labels), due: input.due ?? '', created: this.now(), completed: '', history: [] };
-      await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- dayline:task -->\n\n${input.description?.trim() ?? ''}\n` }));
+      const data = { type: entityType('task'), id, title, status: 'open', scheduled: input.scheduled, initialScheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', goal: input.goal ?? '', labels: normalizeLabels(input.labels), due: input.due ?? '', created: this.now(), completed: '', history: [] };
+      await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- smart-todo:task -->\n\n${input.description?.trim() ?? ''}\n` }));
       return path;
     });
   }
@@ -94,7 +95,8 @@ export class PlannerStore {
       if (!singleLine(next.title) || !validDate(next.scheduled) || (next.due && !validDate(next.due))) throw new Error('Проверьте название и даты');
       for (const [key, value] of Object.entries(patch)) if (!['path', 'id', 'description'].includes(key)) doc.data[key] = value;
       doc.data.title = singleLine(next.title); doc.data.status = next.status;
-      const checkbox = `- [${next.status === 'done' ? 'x' : next.status === 'cancelled' ? '-' : ' '}] ${singleLine(next.title)} <!-- dayline:task -->`;
+      doc.data.initialScheduled = current.initialScheduled;
+      const checkbox = `- [${next.status === 'done' ? 'x' : next.status === 'cancelled' ? '-' : ' '}] ${singleLine(next.title)} <!-- smart-todo:task -->`;
       if (patch.description !== undefined) doc.body = `${checkbox}\n\n${patch.description.trim()}\n`;
       else if (TASK_LINE.test(doc.body)) doc.body = doc.body.replace(TASK_LINE, () => checkbox);
       else doc.body = `${checkbox}\n\n${doc.body}`;
@@ -102,7 +104,7 @@ export class PlannerStore {
     });
   }
   updateTask(path: string, patch: Partial<Pick<Task, 'title' | 'scheduled' | 'due' | 'scope' | 'priority' | 'recurrence' | 'goal' | 'labels' | 'description'>>): Promise<void> {
-    return this.serial(() => this.mutateTask(path, task => ({ ...patch, ...(patch.scheduled && patch.scheduled !== task.scheduled ? { history: [...task.history, { type: 'moved' as const, date: this.now(), from: task.scheduled }] } : {}) })));
+    return this.serial(() => this.mutateTask(path, task => ({ ...patch, ...(patch.scheduled && patch.scheduled !== task.scheduled ? { history: [...task.history, { type: 'moved' as const, date: this.now(), from: task.scheduled, to: patch.scheduled, at: this.clock().toISOString(), automatic: false }] } : {}) })));
   }
   setTaskStatus(path: string, status: Task['status']): Promise<void> {
     return this.serial(() => this.mutateTask(path, task => {
@@ -112,31 +114,47 @@ export class PlannerStore {
         // One atomic update: completing a recurring task records the occurrence and advances its date.
         // A queued second click sees the future date and cannot complete the next occurrence.
         if (task.scheduled > today || task.history.some(h => h.type === 'completed' && h.date === today)) return {};
-        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: 'open', completed: '', history: [...task.history, { type: 'completed', date: today, from: task.scheduled }] };
+        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: 'open', completed: '', history: [...task.history, { type: 'completed', date: today, from: task.scheduled, at: this.clock().toISOString() }] };
       }
-      return { status, completed: status === 'done' ? today : '', history: [...task.history, { type: status === 'done' ? 'completed' : status === 'cancelled' ? 'cancelled' : 'reopened', date: today }] };
+      return { status, completed: status === 'done' ? today : '', history: [...task.history, { type: status === 'done' ? 'completed' : status === 'cancelled' ? 'cancelled' : 'reopened', date: today, at: this.clock().toISOString() }] };
     }));
   }
   deleteTask(path: string): Promise<void> {
+    return this.deleteEntity(path, 'tasks', 'task');
+  }
+  deleteGoal(path: string): Promise<void> {
+    // Task references are retained: restoring the goal from trash restores its links too.
+    return this.deleteEntity(path, 'goals', 'goal');
+  }
+  deleteHabit(path: string): Promise<void> {
+    return this.deleteEntity(path, 'habits', 'habit');
+  }
+  private deleteEntity(path: string, folder: string, type: string): Promise<void> {
     return this.serial(async () => {
-      const prefix = `${this.settings.root}/tasks/`;
-      if (!path.startsWith(prefix) || !/^[^/\\]+\.md$/.test(path.slice(prefix.length)) || path.slice(prefix.length).startsWith('.')) throw new Error('Удалять можно только файлы задач Dayline');
+      const prefix = `${this.settings.root}/${folder}/`;
+      if (!path.startsWith(prefix) || !/^[^/\\]+\.md$/.test(path.slice(prefix.length)) || path.slice(prefix.length).startsWith('.')) throw new Error('Файл находится вне папки выбранного типа Smart Todo');
       const doc = this.decode(await this.storage.read(path));
-      if (doc.data.type !== 'dayline-task') throw new Error('Этот файл не является задачей Dayline');
+      if (!matchesEntityType(doc.data.type, type)) throw new Error('Тип файла не соответствует выбранному действию');
       await this.storage.trash(path);
     });
   }
   async rollover(): Promise<number> {
     if (!this.settings.autoRollover) return 0;
-    const snapshot = await this.snapshot(); const today = this.now(); let count = 0;
+    const snapshot = await this.snapshot(); const today = this.now(); const instant = this.clock();
+    // Before noon, only rollovers whose noon cutoff has already passed are eligible.
+    const cutoffDay = instant.getHours() < 12 ? shiftDay(today, -1) : today;
+    let count = 0;
     await this.serial(async () => {
       for (const task of snapshot.tasks) {
-        if (task.status !== 'open' || task.scope !== 'day' || task.scheduled >= today) continue;
-        if (task.recurrence === 'weekdays' && !habitDue([1, 2, 3, 4, 5], today)) continue;
+        let target = cutoffDay;
+        if (task.recurrence === 'weekdays') while (!habitDue([1, 2, 3, 4, 5], target)) target = shiftDay(target, -1);
+        if (task.status !== 'open' || task.scope !== 'day' || task.scheduled >= target) continue;
+        if (!(await this.storage.exists(task.path))) continue;
         await this.mutateTask(task.path, current => {
-          if (current.status !== 'open' || current.scope !== 'day' || current.scheduled >= today) return {};
+          if (current.status !== 'open' || current.scope !== 'day' || current.scheduled >= target || current.recurrence !== task.recurrence) return {};
+          const effective = parseDate(target); effective.setHours(12, 0, 0, 0);
           count++;
-          return { scheduled: today, history: [...current.history, { type: 'moved', date: today, from: current.scheduled }] };
+          return { scheduled: target, history: [...current.history, { type: 'moved', date: today, from: current.scheduled, to: target, at: instant.toISOString(), effectiveAt: effective.toISOString(), automatic: true }] };
         });
       }
     });
@@ -148,7 +166,7 @@ export class PlannerStore {
       if (input.path) await this.storage.process(input.path, text => {
         const doc = this.decode(text); Object.assign(doc.data, { title: singleLine(input.title), target: input.target, status: input.status ?? doc.data.status }); doc.body = `${input.description.trim()}\n`; return this.encode(doc);
       });
-      else { const id = newId(); await this.storage.create(`${this.settings.root}/goals/${id}.md`, this.encode({ data: { type: 'dayline-goal', id, title: singleLine(input.title), target: input.target, status: 'active' }, body: `${input.description.trim()}\n` })); }
+      else { const id = newId(); await this.storage.create(`${this.settings.root}/goals/${id}.md`, this.encode({ data: { type: entityType('goal'), id, title: singleLine(input.title), target: input.target, status: 'active' }, body: `${input.description.trim()}\n` })); }
     });
   }
   saveHabit(input: Pick<Habit, 'title' | 'days' | 'description'> & Partial<Pick<Habit, 'path' | 'archived'>>): Promise<void> {
@@ -157,7 +175,7 @@ export class PlannerStore {
       if (input.path) await this.storage.process(input.path, text => {
         const doc = this.decode(text); Object.assign(doc.data, { title: singleLine(input.title), days: [...new Set(input.days)], archived: input.archived ?? doc.data.archived }); doc.body = `${input.description.trim()}\n`; return this.encode(doc);
       });
-      else { const id = newId(); await this.storage.create(`${this.settings.root}/habits/${id}.md`, this.encode({ data: { type: 'dayline-habit', id, title: singleLine(input.title), days: [...new Set(input.days)], completions: [], created: this.now(), archived: false }, body: `${input.description.trim()}\n` })); }
+      else { const id = newId(); await this.storage.create(`${this.settings.root}/habits/${id}.md`, this.encode({ data: { type: entityType('habit'), id, title: singleLine(input.title), days: [...new Set(input.days)], completions: [], created: this.now(), archived: false }, body: `${input.description.trim()}\n` })); }
     });
   }
   toggleHabit(path: string, date: string): Promise<void> {
@@ -178,7 +196,7 @@ export class PlannerStore {
     return this.serial(async () => {
       if (!(await this.storage.exists(path))) {
         const title = { day: 'День', week: 'Неделя', month: 'Месяц', year: 'Год' }[scope];
-        await this.storage.create(path, `---\ntype: dayline-${scope}\nperiod: "${periodKey(scope, date)}"\n---\n\n# ${title} · ${periodKey(scope, date)}\n\n## Фокус\n\n\n## Заметки\n\n\n## Итоги\n\n`);
+        await this.storage.create(path, `---\ntype: smart-todo-${scope}\nperiod: "${periodKey(scope, date)}"\n---\n\n# ${title} · ${periodKey(scope, date)}\n\n## Фокус\n\n\n## Заметки\n\n\n## Итоги\n\n`);
       }
       return path;
     });

@@ -15,6 +15,30 @@ function setup() {
   return { storage, store, root, messages, dashboard: new Dashboard(root, store, host) };
 }
 describe('planner UI', () => {
+  it('browses whole weeks across year boundaries without switching into days', async () => {
+    const { dashboard, root } = setup(); await dashboard.refresh(); dashboard.navigate('week', '2026-12-31');
+    expect(root.querySelector('.dl-week-strip')).toBeNull(); expect(root.querySelectorAll('.dl-week-choice')).toHaveLength(3);
+    root.querySelector<HTMLButtonElement>('[aria-label="Следующая неделя"]')!.click();
+    expect(root.querySelector('h1')!.textContent).toContain('4 января');
+    expect(root.querySelector('[aria-current="page"]')!.textContent).toBe('Неделя');
+    root.querySelector<HTMLButtonElement>('.dl-week-choice')!.click(); expect(root.querySelector('[aria-current="page"]')!.textContent).toBe('Неделя');
+  });
+  it('always opens My day when clicking the calendar from another view', async () => {
+    const { dashboard, root, storage } = setup(); await dashboard.refresh();
+    for (const screen of ['week', 'month', 'year', 'stats', 'habits', 'goals'] as const) {
+      dashboard.navigate(screen); root.querySelector<HTMLButtonElement>('.dl-calendar-day')!.click();
+      expect(root.querySelector('[aria-current="page"]')!.textContent).toBe('Мой день');
+    }
+    expect(storage.files.size).toBe(0);
+  });
+  it('shows read-only habit analysis in larger horizons, with no marking or creation buttons', async () => {
+    const { dashboard, root, store } = setup(); await store.saveHabit({ title: 'Read', days: [0, 1, 2, 3, 4, 5, 6], description: '' }); await dashboard.refresh();
+    for (const screen of ['week', 'month', 'year'] as const) {
+      dashboard.navigate(screen); expect(root.querySelector('.dl-habit-analysis')!.textContent).toContain('Read');
+      expect(root.querySelector('.dl-habit-daily, .dl-add-habit, .dl-habit-cell')).toBeNull();
+    }
+    dashboard.navigate('day', dateKey()); expect(root.querySelector('.dl-habit-daily')).not.toBeNull();
+  });
   it('keeps statistics out of working screens and counts completions in their actual period', async () => {
     const { store, dashboard, root } = setup();
     const path = await store.createTask({ title: 'Done today', scheduled: shiftDay(dateKey(), -20) }); await store.setTaskStatus(path, 'done');

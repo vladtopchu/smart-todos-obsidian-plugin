@@ -49,6 +49,39 @@ var init_ids = __esm({
   }
 });
 
+// manifest.json
+var manifest_default;
+var init_manifest = __esm({
+  "manifest.json"() {
+    manifest_default = {
+      id: "smart-todo-vlad-9c82e1b4",
+      name: "Smart Todo",
+      version: "1.0.1",
+      minAppVersion: "1.8.0",
+      description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u0437\u0430\u0434\u0430\u0447\u0438 \u0441 \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441\u043E\u043C, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
+      author: "Personal build for Vlad",
+      isDesktopOnly: false
+    };
+  }
+});
+
+// src/identity.ts
+function entityType(kind) {
+  return `smart-todo-${kind}`;
+}
+function matchesEntityType(value, kind) {
+  return value === entityType(kind) || value === `dayline-${kind}`;
+}
+var PLUGIN_ID, PLUGIN_NAME;
+var init_identity = __esm({
+  "src/identity.ts"() {
+    "use strict";
+    init_manifest();
+    PLUGIN_ID = manifest_default.id;
+    PLUGIN_NAME = manifest_default.name;
+  }
+});
+
 // src/legacy.ts
 var legacy_exports = {};
 __export(legacy_exports, {
@@ -77,7 +110,7 @@ function legacyTasks(text) {
     }
     if (fence) return;
     const match = /^\s*[-*+] \[ \] (.+)$/.exec(line);
-    if (match && !match[1].includes("<!-- dayline:task -->")) result.push({ title: match[1].trim(), line: i + 1 });
+    if (match && !/<!-- (?:smart-todo|dayline):task -->/.test(match[1])) result.push({ title: match[1].trim(), line: i + 1 });
   });
   return result;
 }
@@ -95,9 +128,9 @@ async function importLegacy(store, source, text, today) {
       if (frontmatter && store.codec.parse(frontmatter[1]).importKey === importKey) continue;
       throw new Error(`\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442 \u0438\u043C\u043F\u043E\u0440\u0442\u0430: ${path}. \u0421\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 \u0444\u0430\u0439\u043B \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D.`);
     }
-    const data = { type: "dayline-task", id, title: item.title, status: "open", scheduled: today, scope: "day", priority: "normal", recurrence: "none", goal: "", due: "", created: today, completed: "", history: [], source, importKey };
+    const data = { type: entityType("task"), id, title: item.title, status: "open", scheduled: today, scope: "day", priority: "normal", recurrence: "none", goal: "", due: "", created: today, completed: "", history: [], source, importKey };
     const sourceLink = source.replace(/\.md$/, "");
-    const body = `- [ ] ${item.title} <!-- dayline:task -->
+    const body = `- [ ] ${item.title} <!-- smart-todo:task -->
 
 \u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: [[${sourceLink}]] (\u0441\u0442\u0440\u043E\u043A\u0430 ${item.line}).
 `;
@@ -113,13 +146,14 @@ var init_legacy = __esm({
   "src/legacy.ts"() {
     "use strict";
     init_ids();
+    init_identity();
   }
 });
 
 // src/main.ts
 var main_exports = {};
 __export(main_exports, {
-  default: () => DaylinePlugin
+  default: () => SmartTodoPlugin
 });
 module.exports = __toCommonJS(main_exports);
 var import_obsidian2 = require("obsidian");
@@ -127,6 +161,12 @@ var import_obsidian2 = require("obsidian");
 // src/dates.ts
 function dateKey(date = /* @__PURE__ */ new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+function nextNoon(now) {
+  const next = new Date(now);
+  next.setHours(12, 0, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  return next;
 }
 function parseDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`\u041D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u0430\u044F \u0434\u0430\u0442\u0430: ${value}`);
@@ -168,6 +208,12 @@ function periodKey(scope, value) {
 }
 function inPeriod(date, scope, selected) {
   return periodKey(scope, date) === periodKey(scope, selected);
+}
+function periodBounds(scope, selected) {
+  if (scope === "day") return { start: selected, end: selected };
+  if (scope === "week") return { start: weekStart(selected), end: shiftDay(weekStart(selected), 6) };
+  const start = scope === "month" ? selected.slice(0, 7) + "-01" : selected.slice(0, 4) + "-01-01";
+  return { start, end: shiftDay(stepPeriod(start, scope, 1), -1) };
 }
 function stepPeriod(value, scope, offset) {
   if (scope === "day" || scope === "week") return shiftDay(value, offset * (scope === "week" ? 7 : 1));
@@ -287,7 +333,8 @@ function normalizeLabels(value) {
 }
 
 // src/store.ts
-var TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- dayline:task -->[ \t]*$/m;
+init_identity();
+var TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- (?:smart-todo|dayline):task -->[ \t]*$/m;
 var str = (v, fallback = "") => typeof v === "string" ? v : fallback;
 var pick = (v, options, fallback) => options.includes(v) ? v : fallback;
 var singleLine = (value) => value.replace(/[\r\n]+/g, " ").trim();
@@ -299,11 +346,12 @@ function normalizeRoot(input2) {
   return value;
 }
 var PlannerStore = class {
-  constructor(storage, codec, settings, now = () => dateKey()) {
+  constructor(storage, codec, settings, now = () => dateKey(), clock = () => /* @__PURE__ */ new Date()) {
     this.storage = storage;
     this.codec = codec;
     this.settings = settings;
     this.now = now;
+    this.clock = clock;
     __publicField(this, "queue", Promise.resolve());
     settings.root = normalizeRoot(settings.root);
   }
@@ -328,7 +376,7 @@ ${this.codec.stringify(doc.data).trim()}
 ${doc.body}`;
   }
   task(doc, path) {
-    var _a;
+    var _a, _b, _c;
     const d = doc.data;
     if (!validDate(d.scheduled)) throw new Error("\u041D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u0430\u044F \u0434\u0430\u0442\u0430 \u0437\u0430\u0434\u0430\u0447\u0438");
     const line = TASK_LINE.exec(doc.body);
@@ -340,6 +388,7 @@ ${doc.body}`;
       title: (_a = line == null ? void 0 : line[2]) != null ? _a : str(d.title, "\u0411\u0435\u0437 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u044F"),
       status,
       scheduled: d.scheduled,
+      initialScheduled: validDate(d.initialScheduled) ? d.initialScheduled : (_c = (_b = history.find((h) => h.type === "moved" && validDate(h.from))) == null ? void 0 : _b.from) != null ? _c : d.scheduled,
       scope: pick(d.scope, ["day", "week", "month", "year"], "day"),
       priority: pick(d.priority, ["normal", "high", "low"], "normal"),
       recurrence: pick(d.recurrence, ["none", "daily", "weekdays", "weekly", "monthly"], "none"),
@@ -369,9 +418,9 @@ ${doc.body}`;
       if (!/^(tasks|goals|habits)\/[^/]+\.md$/.test(relative)) return;
       try {
         const doc = this.decode(await this.storage.read(path));
-        if (doc.data.type === "dayline-task") result.tasks.push(this.task(doc, path));
-        else if (doc.data.type === "dayline-goal") result.goals.push(this.goal(doc, path));
-        else if (doc.data.type === "dayline-habit") result.habits.push(this.habit(doc, path));
+        if (matchesEntityType(doc.data.type, "task")) result.tasks.push(this.task(doc, path));
+        else if (matchesEntityType(doc.data.type, "goal")) result.goals.push(this.goal(doc, path));
+        else if (matchesEntityType(doc.data.type, "habit")) result.habits.push(this.habit(doc, path));
       } catch (error) {
         result.warnings.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -389,8 +438,8 @@ ${doc.body}`;
       var _a, _b, _c, _d, _e, _f, _g;
       const id = newId();
       const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: "dayline-task", id, title, status: "open", scheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", goal: (_d = input2.goal) != null ? _d : "", labels: normalizeLabels(input2.labels), due: (_e = input2.due) != null ? _e : "", created: this.now(), completed: "", history: [] };
-      await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- dayline:task -->
+      const data = { type: entityType("task"), id, title, status: "open", scheduled: input2.scheduled, initialScheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", goal: (_d = input2.goal) != null ? _d : "", labels: normalizeLabels(input2.labels), due: (_e = input2.due) != null ? _e : "", created: this.now(), completed: "", history: [] };
+      await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- smart-todo:task -->
 
 ${(_g = (_f = input2.description) == null ? void 0 : _f.trim()) != null ? _g : ""}
 ` }));
@@ -409,7 +458,8 @@ ${(_g = (_f = input2.description) == null ? void 0 : _f.trim()) != null ? _g : "
       for (const [key, value] of Object.entries(patch)) if (!["path", "id", "description"].includes(key)) doc.data[key] = value;
       doc.data.title = singleLine(next.title);
       doc.data.status = next.status;
-      const checkbox = `- [${next.status === "done" ? "x" : next.status === "cancelled" ? "-" : " "}] ${singleLine(next.title)} <!-- dayline:task -->`;
+      doc.data.initialScheduled = current.initialScheduled;
+      const checkbox = `- [${next.status === "done" ? "x" : next.status === "cancelled" ? "-" : " "}] ${singleLine(next.title)} <!-- smart-todo:task -->`;
       if (patch.description !== void 0) doc.body = `${checkbox}
 
 ${patch.description.trim()}
@@ -422,7 +472,7 @@ ${doc.body}`;
     });
   }
   updateTask(path, patch) {
-    return this.serial(() => this.mutateTask(path, (task) => ({ ...patch, ...patch.scheduled && patch.scheduled !== task.scheduled ? { history: [...task.history, { type: "moved", date: this.now(), from: task.scheduled }] } : {} })));
+    return this.serial(() => this.mutateTask(path, (task) => ({ ...patch, ...patch.scheduled && patch.scheduled !== task.scheduled ? { history: [...task.history, { type: "moved", date: this.now(), from: task.scheduled, to: patch.scheduled, at: this.clock().toISOString(), automatic: false }] } : {} })));
   }
   setTaskStatus(path, status) {
     return this.serial(() => this.mutateTask(path, (task) => {
@@ -430,17 +480,26 @@ ${doc.body}`;
       const today = this.now();
       if (status === "done" && task.recurrence !== "none") {
         if (task.scheduled > today || task.history.some((h) => h.type === "completed" && h.date === today)) return {};
-        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: "open", completed: "", history: [...task.history, { type: "completed", date: today, from: task.scheduled }] };
+        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: "open", completed: "", history: [...task.history, { type: "completed", date: today, from: task.scheduled, at: this.clock().toISOString() }] };
       }
-      return { status, completed: status === "done" ? today : "", history: [...task.history, { type: status === "done" ? "completed" : status === "cancelled" ? "cancelled" : "reopened", date: today }] };
+      return { status, completed: status === "done" ? today : "", history: [...task.history, { type: status === "done" ? "completed" : status === "cancelled" ? "cancelled" : "reopened", date: today, at: this.clock().toISOString() }] };
     }));
   }
   deleteTask(path) {
+    return this.deleteEntity(path, "tasks", "task");
+  }
+  deleteGoal(path) {
+    return this.deleteEntity(path, "goals", "goal");
+  }
+  deleteHabit(path) {
+    return this.deleteEntity(path, "habits", "habit");
+  }
+  deleteEntity(path, folder, type) {
     return this.serial(async () => {
-      const prefix = `${this.settings.root}/tasks/`;
-      if (!path.startsWith(prefix) || !/^[^/\\]+\.md$/.test(path.slice(prefix.length)) || path.slice(prefix.length).startsWith(".")) throw new Error("\u0423\u0434\u0430\u043B\u044F\u0442\u044C \u043C\u043E\u0436\u043D\u043E \u0442\u043E\u043B\u044C\u043A\u043E \u0444\u0430\u0439\u043B\u044B \u0437\u0430\u0434\u0430\u0447 Dayline");
+      const prefix = `${this.settings.root}/${folder}/`;
+      if (!path.startsWith(prefix) || !/^[^/\\]+\.md$/.test(path.slice(prefix.length)) || path.slice(prefix.length).startsWith(".")) throw new Error("\u0424\u0430\u0439\u043B \u043D\u0430\u0445\u043E\u0434\u0438\u0442\u0441\u044F \u0432\u043D\u0435 \u043F\u0430\u043F\u043A\u0438 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u0433\u043E \u0442\u0438\u043F\u0430 Smart Todo");
       const doc = this.decode(await this.storage.read(path));
-      if (doc.data.type !== "dayline-task") throw new Error("\u042D\u0442\u043E\u0442 \u0444\u0430\u0439\u043B \u043D\u0435 \u044F\u0432\u043B\u044F\u0435\u0442\u0441\u044F \u0437\u0430\u0434\u0430\u0447\u0435\u0439 Dayline");
+      if (!matchesEntityType(doc.data.type, type)) throw new Error("\u0422\u0438\u043F \u0444\u0430\u0439\u043B\u0430 \u043D\u0435 \u0441\u043E\u043E\u0442\u0432\u0435\u0442\u0441\u0442\u0432\u0443\u0435\u0442 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u043E\u043C\u0443 \u0434\u0435\u0439\u0441\u0442\u0432\u0438\u044E");
       await this.storage.trash(path);
     });
   }
@@ -448,15 +507,21 @@ ${doc.body}`;
     if (!this.settings.autoRollover) return 0;
     const snapshot = await this.snapshot();
     const today = this.now();
+    const instant = this.clock();
+    const cutoffDay = instant.getHours() < 12 ? shiftDay(today, -1) : today;
     let count = 0;
     await this.serial(async () => {
       for (const task of snapshot.tasks) {
-        if (task.status !== "open" || task.scope !== "day" || task.scheduled >= today) continue;
-        if (task.recurrence === "weekdays" && !habitDue([1, 2, 3, 4, 5], today)) continue;
+        let target = cutoffDay;
+        if (task.recurrence === "weekdays") while (!habitDue([1, 2, 3, 4, 5], target)) target = shiftDay(target, -1);
+        if (task.status !== "open" || task.scope !== "day" || task.scheduled >= target) continue;
+        if (!await this.storage.exists(task.path)) continue;
         await this.mutateTask(task.path, (current) => {
-          if (current.status !== "open" || current.scope !== "day" || current.scheduled >= today) return {};
+          if (current.status !== "open" || current.scope !== "day" || current.scheduled >= target || current.recurrence !== task.recurrence) return {};
+          const effective = parseDate(target);
+          effective.setHours(12, 0, 0, 0);
           count++;
-          return { scheduled: today, history: [...current.history, { type: "moved", date: today, from: current.scheduled }] };
+          return { scheduled: target, history: [...current.history, { type: "moved", date: today, from: current.scheduled, to: target, at: instant.toISOString(), effectiveAt: effective.toISOString(), automatic: true }] };
         });
       }
     });
@@ -475,7 +540,7 @@ ${doc.body}`;
       });
       else {
         const id = newId();
-        await this.storage.create(`${this.settings.root}/goals/${id}.md`, this.encode({ data: { type: "dayline-goal", id, title: singleLine(input2.title), target: input2.target, status: "active" }, body: `${input2.description.trim()}
+        await this.storage.create(`${this.settings.root}/goals/${id}.md`, this.encode({ data: { type: entityType("goal"), id, title: singleLine(input2.title), target: input2.target, status: "active" }, body: `${input2.description.trim()}
 ` }));
       }
     });
@@ -493,7 +558,7 @@ ${doc.body}`;
       });
       else {
         const id = newId();
-        await this.storage.create(`${this.settings.root}/habits/${id}.md`, this.encode({ data: { type: "dayline-habit", id, title: singleLine(input2.title), days: [...new Set(input2.days)], completions: [], created: this.now(), archived: false }, body: `${input2.description.trim()}
+        await this.storage.create(`${this.settings.root}/habits/${id}.md`, this.encode({ data: { type: entityType("habit"), id, title: singleLine(input2.title), days: [...new Set(input2.days)], completions: [], created: this.now(), archived: false }, body: `${input2.description.trim()}
 ` }));
       }
     });
@@ -521,7 +586,7 @@ ${doc.body}`;
       if (!await this.storage.exists(path)) {
         const title = { day: "\u0414\u0435\u043D\u044C", week: "\u041D\u0435\u0434\u0435\u043B\u044F", month: "\u041C\u0435\u0441\u044F\u0446", year: "\u0413\u043E\u0434" }[scope];
         await this.storage.create(path, `---
-type: dayline-${scope}
+type: smart-todo-${scope}
 period: "${periodKey(scope, date)}"
 ---
 
@@ -674,6 +739,25 @@ function meter(value, className = "") {
   return node;
 }
 
+// src/habit-analysis.ts
+function analyzeHabit(habit, scope, selected, today) {
+  const { start, end } = periodBounds(scope, selected);
+  const last = end < today ? end : today;
+  const completions = new Set(habit.completions);
+  let completed = 0;
+  let planned = 0;
+  let missed = 0;
+  let pending = 0;
+  for (let date = start > habit.created ? start : habit.created; date <= last; date = shiftDay(date, 1)) {
+    if (!habitDue(habit.days, date)) continue;
+    planned++;
+    if (completions.has(date)) completed++;
+    else if (date < today) missed++;
+    else pending++;
+  }
+  return { completed, planned, missed, pending, percent: planned ? Math.round(completed / planned * 100) : null };
+}
+
 // src/ui/dashboard.ts
 var SCOPES = { day: "\u0414\u0435\u043D\u044C", week: "\u041D\u0435\u0434\u0435\u043B\u044F", month: "\u041C\u0435\u0441\u044F\u0446", year: "\u0413\u043E\u0434" };
 var REPEATS = { none: "\u0411\u0435\u0437 \u043F\u043E\u0432\u0442\u043E\u0440\u0430", daily: "\u041A\u0430\u0436\u0434\u044B\u0439 \u0434\u0435\u043D\u044C", weekdays: "\u041F\u043E \u0431\u0443\u0434\u043D\u044F\u043C", weekly: "\u0420\u0430\u0437 \u0432 \u043D\u0435\u0434\u0435\u043B\u044E", monthly: "\u0420\u0430\u0437 \u0432 \u043C\u0435\u0441\u044F\u0446" };
@@ -715,7 +799,7 @@ var Dashboard = class {
   }
   navigate(screen, date = this.selected) {
     this.screen = screen;
-    this.selected = date;
+    this.selected = screen === "week" ? weekStart(date) : date;
     this.calendarMonth = date.slice(0, 7) + "-01";
     this.query = "";
     this.filter = "all";
@@ -787,12 +871,7 @@ var Dashboard = class {
     const busy = new Set(this.data.tasks.filter((t) => t.status !== "cancelled").map((t) => t.scheduled));
     for (let i = 0; i < 42; i++) {
       const date = shiftDay(first, i);
-      const node = button(String(parseDate(date).getDate()), () => {
-        this.selected = date;
-        this.calendarMonth = date.slice(0, 7) + "-01";
-        if (["goals", "habits", "stats"].includes(this.screen)) this.screen = "day";
-        this.render();
-      }, `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? "is-outside" : ""} ${date === this.selected ? "is-selected" : ""} ${date === dateKey() ? "is-today" : ""} ${busy.has(date) ? "has-tasks" : ""}`);
+      const node = button(String(parseDate(date).getDate()), () => this.navigate("day", date), `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? "is-outside" : ""} ${date === this.selected ? "is-selected" : ""} ${date === dateKey() ? "is-today" : ""} ${busy.has(date) ? "has-tasks" : ""}`);
       node.setAttribute("aria-label", displayDate(date, { day: "numeric", month: "long", year: "numeric" }));
       node.setAttribute("aria-pressed", String(date === this.selected));
       if (date === dateKey()) node.setAttribute("aria-current", "date");
@@ -810,7 +889,7 @@ var Dashboard = class {
     topButtons.append(button("\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C", () => {
       this.calendarOpen = !this.calendarOpen;
       this.render();
-    }, "dl-icon-button dl-calendar-toggle", "calendar"), button("\u0421\u0435\u0433\u043E\u0434\u043D\u044F", () => this.navigate("day", dateKey()), "dl-button dl-button-quiet"));
+    }, "dl-icon-button dl-calendar-toggle", "calendar"), button(this.screen === "week" ? "\u0422\u0435\u043A\u0443\u0449\u0430\u044F \u043D\u0435\u0434\u0435\u043B\u044F" : this.screen === "month" ? "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u043C\u0435\u0441\u044F\u0446" : this.screen === "year" ? "\u0422\u0435\u043A\u0443\u0449\u0438\u0439 \u0433\u043E\u0434" : "\u0421\u0435\u0433\u043E\u0434\u043D\u044F", () => this.navigate(["day", "week", "month", "year"].includes(this.screen) ? this.screen : "day", dateKey()), "dl-button dl-button-quiet"));
     if (!["goals", "habits", "stats"].includes(this.screen)) topButtons.append(button("\u0422\u043E\u043B\u044C\u043A\u043E \u0437\u0430\u0434\u0430\u0447\u0438", () => this.togglePanels(), "dl-button dl-button-quiet", "focus"));
     top.append(crumb, topButtons);
     main.append(top);
@@ -840,7 +919,7 @@ var Dashboard = class {
   }
   periodTasks(scope) {
     const ranks = { day: 0, week: 1, month: 2, year: 3 };
-    return this.data.tasks.filter((t) => t.status !== "cancelled" && ranks[t.scope] <= ranks[scope] && inPeriod(t.scheduled, scope, this.selected));
+    return this.data.tasks.filter((t) => t.status !== "cancelled" && ranks[t.scope] <= ranks[scope] && (inPeriod(t.scheduled, scope, this.selected) || scope === "day" && this.selected === dateKey() && t.status === "open" && t.scheduled < this.selected));
   }
   plannerPage(scope) {
     const page = el("div", "dl-planner");
@@ -851,8 +930,8 @@ var Dashboard = class {
     const add = button("\u041D\u043E\u0432\u0430\u044F \u0437\u0430\u0434\u0430\u0447\u0430", () => this.taskDialog(), "dl-button dl-button-primary", "plus");
     page.append(this.pageHeader("", CAP(period), "", [note, add]));
     const timeline = el("div", "dl-period-navigation");
-    timeline.append(button("\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => this.navigate(scope, stepPeriod(this.selected, scope, -1)), "dl-icon-button", "left"));
-    if (scope === "day" || scope === "week") {
+    timeline.append(button(scope === "week" ? "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0430\u044F \u043D\u0435\u0434\u0435\u043B\u044F" : "\u041F\u0440\u0435\u0434\u044B\u0434\u0443\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => this.navigate(scope, stepPeriod(this.selected, scope, -1)), "dl-icon-button", "left"));
+    if (scope === "day") {
       const days = el("div", "dl-week-strip");
       for (const [i, date] of weekDays(this.selected).entries()) {
         const item = button(WEEKDAYS[i], () => this.navigate("day", date), `dl-week-day ${date === this.selected ? "is-selected" : ""} ${date === dateKey() ? "is-today" : ""}`);
@@ -862,8 +941,20 @@ var Dashboard = class {
         days.append(item);
       }
       timeline.append(days);
+    } else if (scope === "week") {
+      const weeks = el("div", "dl-week-picker");
+      for (const offset of [-1, 0, 1]) {
+        const start = shiftDay(weekStart(this.selected), offset * 7);
+        const end = shiftDay(start, 6);
+        const choice = button(`\u041D\u0435\u0434\u0435\u043B\u044F ${periodKey("week", start).split("W")[1]}`, () => this.navigate("week", start), `dl-week-choice ${offset === 0 ? "is-selected" : ""}`);
+        choice.append(el("small", "", `${displayDate(start, { day: "numeric", month: "short" })} \u2014 ${displayDate(end, { day: "numeric", month: "short" })}`));
+        choice.setAttribute("aria-label", `\u041D\u0435\u0434\u0435\u043B\u044F ${periodKey("week", start)}: ${displayDate(start)} \u2014 ${displayDate(end)}`);
+        choice.setAttribute("aria-pressed", String(offset === 0));
+        weeks.append(choice);
+      }
+      timeline.append(weeks);
     } else timeline.append(el("strong", "dl-period-label", CAP(period)));
-    timeline.append(button("\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => this.navigate(scope, stepPeriod(this.selected, scope, 1)), "dl-icon-button", "right"));
+    timeline.append(button(scope === "week" ? "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0430\u044F \u043D\u0435\u0434\u0435\u043B\u044F" : "\u0421\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u043F\u0435\u0440\u0438\u043E\u0434", () => this.navigate(scope, stepPeriod(this.selected, scope, 1)), "dl-icon-button", "right"));
     page.append(timeline);
     const tasks = this.periodTasks(scope);
     const habits = this.data.habits.filter((h) => !h.archived && habitDue(h.days, this.selected) && h.created <= this.selected);
@@ -896,12 +987,7 @@ var Dashboard = class {
     const overdue = scope === "day" ? this.data.tasks.filter((t) => t.status === "open" && t.scope === "day" && t.scheduled < this.selected && this.selected <= dateKey()) : [];
     if (overdue.length && !this.query && this.filter !== "done") {
       const banner = el("div", "dl-overdue-banner");
-      banner.append(el("strong", "", `\u041E\u0441\u0442\u0430\u043B\u0438\u0441\u044C \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \xB7 ${overdue.length}`), el("p", "", "\u041F\u0435\u0440\u0435\u043D\u0435\u0441\u0438\u0442\u0435 \u043D\u0443\u0436\u043D\u043E\u0435 \u0432 \u0432\u044B\u0431\u0440\u0430\u043D\u043D\u044B\u0439 \u0434\u0435\u043D\u044C \u0438\u043B\u0438 \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u0434\u0430\u0442\u0443 \u0437\u0430\u0434\u0430\u0447\u0438."));
-      banner.append(button("\u041F\u0435\u0440\u0435\u043D\u0435\u0441\u0442\u0438 \u0441\u044E\u0434\u0430", () => {
-        void this.action(async () => {
-          for (const task of overdue) await this.store.updateTask(task.path, { scheduled: this.selected });
-        });
-      }, "dl-button dl-button-secondary", "move"));
+      banner.append(el("strong", "", `\u041D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439 \xB7 ${overdue.length}`), el("p", "", this.store.settings.autoRollover ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u043D\u0438\u0436\u0435. \u0410\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u043D\u0430 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0434\u0435\u043D\u044C \u2014 \u0432 12:00 \u043F\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0438 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430." : "\u0410\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D. \u0414\u0430\u0442\u0443 \u043C\u043E\u0436\u043D\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0432 \u0444\u043E\u0440\u043C\u0435 \u0437\u0430\u0434\u0430\u0447\u0438."));
       taskColumn.append(banner);
     }
     if (!visible.length) taskColumn.append(this.empty(this.query ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u044B" : "\u041D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447", this.query ? "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u043E\u0438\u0441\u043A\u043E\u0432\u044B\u0439 \u0437\u0430\u043F\u0440\u043E\u0441." : "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0443 \u0432 \u043F\u043E\u043B\u0435 \u0432\u044B\u0448\u0435."));
@@ -913,7 +999,7 @@ var Dashboard = class {
       taskColumn.append(list);
     }
     const rail = el("aside", "dl-context-rail");
-    rail.append(this.dailyHabits(habits));
+    rail.append(scope === "day" ? this.dailyHabits(habits) : this.habitAnalysis(scope));
     if (scope === "day") rail.append(this.weekFocus());
     else rail.append(this.goalPreview());
     columns.append(taskColumn, rail);
@@ -984,7 +1070,7 @@ var Dashboard = class {
       repeat.append(icon("repeat"), el("span", "", REPEATS[task.recurrence]));
       metadata.append(repeat);
     }
-    if (showDate) metadata.append(el("span", "", `${displayDate(task.scheduled)}${task.scope !== "day" ? ` \xB7 ${SCOPES[task.scope]}` : ""}`));
+    if (showDate || task.scheduled !== this.selected) metadata.append(el("span", "", `${displayDate(task.scheduled)}${task.scope !== "day" ? ` \xB7 ${SCOPES[task.scope]}` : ""}`));
     if (task.due) metadata.append(el("span", task.due < dateKey() && task.status === "open" ? "dl-late" : "", `\u0414\u043E ${displayDate(task.due)}`));
     const moved = task.history.filter((h) => h.type === "moved");
     if (moved.length) metadata.append(el("span", "dl-moved", `\u21AA \u0441 ${displayDate((_a = moved[0].from) != null ? _a : task.created)} \xB7 ${moved.length} \u043F\u0435\u0440\u0435\u043D\u043E\u0441${moved.length === 1 ? "" : "\u043E\u0432"}`));
@@ -1003,13 +1089,7 @@ var Dashboard = class {
       actions.append(button("\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C", () => {
         close();
         this.taskDialog(task);
-      }, "dl-button", "file"), button("\u0412 \u043F\u043B\u0430\u043D \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F", () => {
-        close();
-        void this.action(() => this.store.updateTask(task.path, { scheduled: dateKey(), scope: "day" }));
-      }, "dl-button", "sun"), button("\u041F\u0435\u0440\u0435\u043D\u0435\u0441\u0442\u0438 \u043D\u0430 \u0437\u0430\u0432\u0442\u0440\u0430", () => {
-        close();
-        void this.action(() => this.store.updateTask(task.path, { scheduled: shiftDay(dateKey(), 1), scope: "day" }));
-      }, "dl-button", "move"), button("\u041E\u0442\u043A\u0440\u044B\u0442\u044C Markdown", () => {
+      }, "dl-button", "file"), button("\u041E\u0442\u043A\u0440\u044B\u0442\u044C Markdown", () => {
         close();
         void this.action(() => this.host.openFile(task.path));
       }, "dl-button", "file"), button("\u041E\u0442\u043C\u0435\u043D\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443", () => {
@@ -1040,6 +1120,25 @@ var Dashboard = class {
       row.setAttribute("aria-pressed", String(done));
       box.append(row);
     }
+    return box;
+  }
+  habitAnalysis(scope) {
+    const box = el("section", "dl-card dl-habit-analysis");
+    box.setAttribute("aria-label", "\u0410\u043D\u0430\u043B\u0438\u0437 \u043F\u0440\u0438\u0432\u044B\u0447\u0435\u043A");
+    box.append(el("h2", "", `\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \xB7 ${SCOPES[scope].toLocaleLowerCase()}`));
+    const habits = this.data.habits.filter((h) => !h.archived);
+    if (!habits.length) box.append(el("p", "dl-card-subtitle", "\u041D\u0435\u0442 \u0434\u0430\u043D\u043D\u044B\u0445 \u043E \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0430\u0445."));
+    for (const habit of habits) {
+      const data = analyzeHabit(habit, scope, this.selected, dateKey());
+      const row = el("div", "dl-habit-analysis-row");
+      row.append(el("strong", "", habit.title));
+      if (data.percent === null) row.append(el("p", "", "\u0417\u0430 \u044D\u0442\u043E\u0442 \u043F\u0435\u0440\u0438\u043E\u0434 \u043F\u043E\u043A\u0430 \u043D\u0435\u0442 \u0437\u0430\u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0430\u043D\u043D\u044B\u0445 \u0434\u043D\u0435\u0439."));
+      else {
+        row.append(el("p", "", `${data.completed} \u0438\u0437 ${data.planned} \xB7 ${data.percent}%`), meter(data.percent), el("small", "", `\u041F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043E: ${data.missed}${data.pending ? " \xB7 \u0441\u0435\u0433\u043E\u0434\u043D\u044F \u0435\u0449\u0451 \u043D\u0435 \u043E\u0442\u043C\u0435\u0447\u0435\u043D\u043E" : ""}`));
+      }
+      box.append(row);
+    }
+    box.append(el("p", "dl-card-subtitle", "\u0423\u0447\u0438\u0442\u044B\u0432\u0430\u044E\u0442\u0441\u044F \u0434\u043D\u0438 \u043F\u043E \u0440\u0430\u0441\u043F\u0438\u0441\u0430\u043D\u0438\u044E \u0434\u043E \u0441\u0435\u0433\u043E\u0434\u043D\u044F\u0448\u043D\u0435\u0433\u043E \u0432\u043A\u043B\u044E\u0447\u0438\u0442\u0435\u043B\u044C\u043D\u043E. \u0411\u0443\u0434\u0443\u0449\u0438\u0435 \u0434\u043D\u0438 \u043D\u0435 \u0441\u0447\u0438\u0442\u0430\u044E\u0442\u0441\u044F \u043F\u0440\u043E\u043F\u0443\u0441\u043A\u0430\u043C\u0438."));
     return box;
   }
   weekFocus() {
@@ -1254,8 +1353,8 @@ var Dashboard = class {
         const history = el("details", "dl-occurrences");
         history.append(el("summary", "", "\u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0437\u0430\u0434\u0430\u0447\u0438"));
         task.history.slice().reverse().forEach((h) => {
-          var _a2;
-          return history.append(el("p", "", `${displayDate(h.date)} \xB7 ${h.type === "moved" ? `\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0441 ${(_a2 = h.from) != null ? _a2 : "\u2014"}` : h.type === "completed" ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0430" : h.type === "cancelled" ? "\u043E\u0442\u043C\u0435\u043D\u0435\u043D\u0430" : "\u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u0430 \u0432 \u0440\u0430\u0431\u043E\u0442\u0443"}`));
+          var _a2, _b2;
+          return history.append(el("p", "", `${h.at ? new Date(h.at).toLocaleString("ru-RU") : displayDate(h.date)} \xB7 ${h.type === "moved" ? `\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0441 ${(_a2 = h.from) != null ? _a2 : "\u2014"} \u043D\u0430 ${(_b2 = h.to) != null ? _b2 : "\u2014"}${h.automatic ? " \xB7 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438" : ""}` : h.type === "completed" ? "\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0430" : h.type === "cancelled" ? "\u043E\u0442\u043C\u0435\u043D\u0435\u043D\u0430" : "\u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u0430 \u0432 \u0440\u0430\u0431\u043E\u0442\u0443"}`));
         });
         form.append(history);
       }
@@ -1339,10 +1438,18 @@ var Dashboard = class {
       form.append(field("\u0426\u0435\u043B\u044C", title), field("\u0421\u0440\u043E\u043A", target));
       if (goal) form.append(field("\u0421\u043E\u0441\u0442\u043E\u044F\u043D\u0438\u0435", status));
       form.append(field("\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435", notes), el("p", "dl-form-hint", "\u041F\u0440\u043E\u0433\u0440\u0435\u0441\u0441 \u0440\u0430\u0441\u0441\u0447\u0438\u0442\u044B\u0432\u0430\u0435\u0442\u0441\u044F \u043F\u043E \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u043C \u0441\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u043C \u0437\u0430\u0434\u0430\u0447\u0430\u043C. \u0414\u043E\u0441\u0442\u0438\u0436\u0435\u043D\u0438\u0435 \u0446\u0435\u043B\u0438 \u043C\u043E\u0436\u043D\u043E \u043E\u0442\u043C\u0435\u0442\u0438\u0442\u044C \u0432\u0440\u0443\u0447\u043D\u0443\u044E."));
-      this.formActions(form, close, () => this.store.saveGoal({ path: goal == null ? void 0 : goal.path, title: title.value, target: target.value, description: notes.value, status: status.value }), "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0446\u0435\u043B\u044C", goal ? button("Markdown", () => {
-        close();
-        void this.action(() => this.host.openFile(goal.path));
-      }, "dl-button dl-button-secondary", "file") : void 0);
+      const extras = el("div", "dl-inline");
+      if (goal) {
+        extras.append(button("Markdown", () => {
+          close();
+          void this.action(() => this.host.openFile(goal.path));
+        }, "dl-button dl-button-secondary", "file"), button("\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u0446\u0435\u043B\u044C", () => {
+          close();
+          void this.action(() => this.store.deleteGoal(goal.path), "\u0426\u0435\u043B\u044C \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u0430 \u0432 .trash. \u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u044B.");
+        }, "dl-button dl-danger", "trash"));
+        form.append(el("p", "dl-form-hint", "\u0423\u0434\u0430\u043B\u0435\u043D\u0438\u0435 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0430\u0435\u0442 \u0444\u0430\u0439\u043B \u0446\u0435\u043B\u0438 \u0432 .trash. \u0421\u0432\u044F\u0437\u0430\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F; \u043F\u043E\u0441\u043B\u0435 \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0446\u0435\u043B\u0438 \u0438\u0437 \u043A\u043E\u0440\u0437\u0438\u043D\u044B \u0441\u0432\u044F\u0437\u0438 \u0432\u0435\u0440\u043D\u0443\u0442\u0441\u044F."));
+      }
+      this.formActions(form, close, () => this.store.saveGoal({ path: goal == null ? void 0 : goal.path, title: title.value, target: target.value, description: notes.value, status: status.value }), "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0446\u0435\u043B\u044C", goal ? extras : void 0);
       body.append(form);
     });
   }
@@ -1367,15 +1474,19 @@ var Dashboard = class {
         choices.append(toggle);
       });
       form.append(field("\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0430", title), field("\u0412 \u043A\u0430\u043A\u0438\u0435 \u0434\u043D\u0438?", choices), field("\u0417\u0430\u043C\u0435\u0442\u043A\u0438", notes));
-      const archive = habit ? button("\u0412 \u0430\u0440\u0445\u0438\u0432", () => {
+      const extras = el("div", "dl-inline");
+      if (habit) extras.append(button("\u0412 \u0430\u0440\u0445\u0438\u0432", () => {
         close();
         void this.action(() => this.store.saveHabit({ ...habit, archived: true }), "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0430 \u0432 \u0430\u0440\u0445\u0438\u0432\u0435. \u0418\u0441\u0442\u043E\u0440\u0438\u044F \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0430 \u0432 Markdown.");
-      }, "dl-button dl-button-quiet") : void 0;
+      }, "dl-button dl-button-quiet"), button("\u0423\u0434\u0430\u043B\u0438\u0442\u044C \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0443", () => {
+        close();
+        void this.action(() => this.store.deleteHabit(habit.path), "\u041F\u0440\u0438\u0432\u044B\u0447\u043A\u0430 \u0438 \u0435\u0451 \u043E\u0442\u043C\u0435\u0442\u043A\u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0435\u043D\u044B \u0432 .trash.");
+      }, "dl-button dl-danger", "trash"));
       if (habit) form.append(button("\u041E\u0442\u043A\u0440\u044B\u0442\u044C Markdown", () => {
         close();
         void this.action(() => this.host.openFile(habit.path));
       }, "dl-text-button", "file"));
-      this.formActions(form, close, () => this.store.saveHabit({ path: habit == null ? void 0 : habit.path, title: title.value, days: [...days], description: notes.value }), "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0443", archive);
+      this.formActions(form, close, () => this.store.saveHabit({ path: habit == null ? void 0 : habit.path, title: title.value, days: [...days], description: notes.value }), "\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0443", habit ? extras : void 0);
       body.append(form);
     });
   }
@@ -1406,7 +1517,8 @@ var Dashboard = class {
 };
 
 // src/main.ts
-var VIEW = "dayline-planner";
+init_identity();
+var VIEW = `${PLUGIN_ID}-planner`;
 var PlannerModal = class extends import_obsidian2.Modal {
   constructor(app, title, render) {
     super(app);
@@ -1433,7 +1545,7 @@ var PlannerView = class extends import_obsidian2.ItemView {
     return VIEW;
   }
   getDisplayText() {
-    return "Dayline";
+    return PLUGIN_NAME;
   }
   getIcon() {
     return "sun";
@@ -1451,11 +1563,12 @@ var PlannerView = class extends import_obsidian2.ItemView {
     this.dashboard = void 0;
   }
 };
-var DaylinePlugin = class extends import_obsidian2.Plugin {
+var SmartTodoPlugin = class extends import_obsidian2.Plugin {
   constructor() {
     super(...arguments);
     __publicField(this, "store");
     __publicField(this, "refreshTimer");
+    __publicField(this, "noonTimer");
     __publicField(this, "checking", false);
     __publicField(this, "lastDay", "");
     __publicField(this, "unloaded", false);
@@ -1485,7 +1598,7 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
       this.settings.root = normalizeRoot(this.settings.root);
     } catch (e) {
       this.settings.root = DEFAULT_SETTINGS.root;
-      new import_obsidian2.Notice("Dayline: \u043D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u0430\u044F \u043F\u0430\u043F\u043A\u0430 \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F _todotracking.");
+      new import_obsidian2.Notice("Smart Todo: \u043D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u0430\u044F \u043F\u0430\u043F\u043A\u0430 \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445. \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0435\u0442\u0441\u044F _todotracking.");
     }
     this.store = new PlannerStore(new ObsidianStorage(this.app), { parse: import_obsidian2.parseYaml, stringify: import_obsidian2.stringifyYaml }, this.settings);
     this.registerView(VIEW, (leaf) => new PlannerView(leaf, this));
@@ -1493,7 +1606,7 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
       var _a, _b;
       return this.setTasksOnly(((_b = (_a = this.app.workspace.getActiveViewOfType(PlannerView)) == null ? void 0 : _a.dashboard) == null ? void 0 : _b.isTasksOnlyMode()) === true);
     }));
-    this.addRibbonIcon("sun", "\u041E\u0442\u043A\u0440\u044B\u0442\u044C Dayline", () => {
+    this.addRibbonIcon("sun", "\u041E\u0442\u043A\u0440\u044B\u0442\u044C Smart Todo", () => {
       void this.openPlanner();
     });
     this.addCommand({ id: "open-planner", name: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0449\u0438\u043A", callback: () => {
@@ -1505,9 +1618,9 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
     this.addCommand({ id: "open-today", name: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0443 \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F", callback: () => {
       void this.openNote();
     } });
-    this.addCommand({ id: "rollover", name: "\u041F\u0435\u0440\u0435\u043D\u0435\u0441\u0442\u0438 \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F", callback: () => {
+    this.addCommand({ id: "rollover", name: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 (12:00)", callback: () => {
       void this.store.rollover().then((n) => {
-        new import_obsidian2.Notice(this.settings.autoRollover ? `Dayline: \u043F\u0435\u0440\u0435\u043D\u0435\u0441\u0435\u043D\u043E \u0437\u0430\u0434\u0430\u0447 \u2014 ${n}` : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445 Dayline.");
+        new import_obsidian2.Notice(this.settings.autoRollover ? `Smart Todo: \u043F\u0435\u0440\u0435\u043D\u0435\u0441\u0435\u043D\u043E \u0437\u0430\u0434\u0430\u0447 \u2014 ${n}` : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445 Smart Todo.");
         this.scheduleRefresh();
       }).catch((error) => this.report(error));
     } });
@@ -1525,26 +1638,44 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
       if (file.path.startsWith(`${this.settings.root}/`) || oldPath.startsWith(`${this.settings.root}/`)) this.scheduleRefresh();
     }));
     this.registerDomEvent(document, "visibilitychange", () => {
-      if (!document.hidden) void this.checkDay();
+      if (!document.hidden) {
+        this.scheduleNoon();
+        void this.checkDay();
+      }
     });
     this.registerDomEvent(window, "focus", () => {
+      this.scheduleNoon();
       void this.checkDay();
     });
     this.registerInterval(window.setInterval(() => {
       void this.checkDay();
     }, 6e4));
     this.app.workspace.onLayoutReady(() => {
-      if (!this.unloaded) void this.checkDay();
+      if (!this.unloaded) {
+        this.scheduleNoon();
+        void this.checkDay();
+      }
     });
   }
   onunload() {
     this.unloaded = true;
     this.setTasksOnly(false);
     if (this.refreshTimer !== void 0) window.clearTimeout(this.refreshTimer);
+    if (this.noonTimer !== void 0) window.clearTimeout(this.noonTimer);
+  }
+  scheduleNoon() {
+    if (this.unloaded) return;
+    if (this.noonTimer !== void 0) window.clearTimeout(this.noonTimer);
+    const now = /* @__PURE__ */ new Date();
+    this.noonTimer = window.setTimeout(() => {
+      this.noonTimer = void 0;
+      void this.checkDay();
+      this.scheduleNoon();
+    }, nextNoon(now).getTime() - now.getTime());
   }
   report(error) {
-    console.error("Dayline", error);
-    new import_obsidian2.Notice(`Dayline: ${error instanceof Error ? error.message : String(error)}`, 8e3);
+    console.error("Smart Todo", error);
+    new import_obsidian2.Notice(`Smart Todo: ${error instanceof Error ? error.message : String(error)}`, 8e3);
   }
   async checkDay() {
     if (this.checking || this.unloaded) return;
@@ -1627,7 +1758,7 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
       return;
     }
     if (file.path.startsWith(`${this.settings.root}/tasks/`)) {
-      new import_obsidian2.Notice("\u042D\u0442\u0430 \u0437\u0430\u0434\u0430\u0447\u0430 \u0443\u0436\u0435 \u043D\u0430\u0445\u043E\u0434\u0438\u0442\u0441\u044F \u0432 Dayline.");
+      new import_obsidian2.Notice("\u042D\u0442\u0430 \u0437\u0430\u0434\u0430\u0447\u0430 \u0443\u0436\u0435 \u043D\u0430\u0445\u043E\u0434\u0438\u0442\u0441\u044F \u0432 Smart Todo.");
       return;
     }
     try {
@@ -1638,7 +1769,7 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
         new import_obsidian2.Notice("\u0412 \u0437\u0430\u043C\u0435\u0442\u043A\u0435 \u043D\u0435\u0442 \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0445 Markdown-\u0437\u0430\u0434\u0430\u0447.");
         return;
       }
-      new PlannerModal(this.app, `\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 Dayline \xB7 ${candidates.length}`, (body, close) => {
+      new PlannerModal(this.app, `\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0432 Smart Todo \xB7 ${candidates.length}`, (body, close) => {
         body.append(el("p", "", `\u0418\u0441\u0442\u043E\u0447\u043D\u0438\u043A: ${file.path}. \u0417\u0430\u0434\u0430\u0447\u0438 \u0431\u0443\u0434\u0443\u0442 \u0441\u043A\u043E\u043F\u0438\u0440\u043E\u0432\u0430\u043D\u044B \u0432 \u043F\u043B\u0430\u043D \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F. \u0418\u0441\u0445\u043E\u0434\u043D\u0430\u044F \u0437\u0430\u043C\u0435\u0442\u043A\u0430 \u043E\u0441\u0442\u0430\u043D\u0435\u0442\u0441\u044F \u0431\u0435\u0437 \u0438\u0437\u043C\u0435\u043D\u0435\u043D\u0438\u0439. \u041F\u043E\u0432\u0442\u043E\u0440\u043D\u044B\u0439 \u0438\u043C\u043F\u043E\u0440\u0442 \u0442\u043E\u0439 \u0436\u0435 \u0441\u0442\u0440\u043E\u043A\u0438 \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u0451\u0442 \u043A\u043E\u043F\u0438\u0439.`));
         const list = el("ul", "dl-import-list");
         candidates.forEach((c) => list.append(el("li", "", c.title)));
@@ -1647,7 +1778,7 @@ var DaylinePlugin = class extends import_obsidian2.Plugin {
           save.disabled = true;
           void this.importTasks(file, text).then((n) => {
             close();
-            new import_obsidian2.Notice(`Dayline: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E \u0437\u0430\u0434\u0430\u0447 \u2014 ${n}`);
+            new import_obsidian2.Notice(`Smart Todo: \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u043E \u0437\u0430\u0434\u0430\u0447 \u2014 ${n}`);
             this.scheduleRefresh();
           }).catch((error) => {
             save.disabled = false;
@@ -1676,7 +1807,7 @@ var PlannerSettings = class extends import_obsidian2.PluginSettingTab {
   }
   renderInto(container) {
     let root = this.plugin.settings.root;
-    new import_obsidian2.Setting(container).setName("\u041F\u0430\u043F\u043A\u0430 \u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0449\u0438\u043A\u0430").setDesc("\u041F\u0440\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0438 \u0432\u0441\u0435 \u0444\u0430\u0439\u043B\u044B Dayline \u043F\u0435\u0440\u0435\u0435\u0434\u0443\u0442 \u0432 \u043D\u043E\u0432\u0443\u044E \u043F\u0430\u043F\u043A\u0443 \u0441 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435\u043C \u0441\u0441\u044B\u043B\u043E\u043A. \u0421\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u044F \u0438\u043C\u0451\u043D \u043E\u0442\u043C\u0435\u043D\u044F\u044E\u0442 \u043F\u0435\u0440\u0435\u043D\u043E\u0441.").addText((text) => text.setValue(root).setPlaceholder("_todotracking").onChange((value) => {
+    new import_obsidian2.Setting(container).setName("\u041F\u0430\u043F\u043A\u0430 \u043F\u043B\u0430\u043D\u0438\u0440\u043E\u0432\u0449\u0438\u043A\u0430").setDesc("\u041F\u0440\u0438 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0438 \u0432\u0441\u0435 \u0444\u0430\u0439\u043B\u044B Smart Todo \u043F\u0435\u0440\u0435\u0435\u0434\u0443\u0442 \u0432 \u043D\u043E\u0432\u0443\u044E \u043F\u0430\u043F\u043A\u0443 \u0441 \u043E\u0431\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u0435\u043C \u0441\u0441\u044B\u043B\u043E\u043A. \u0421\u043E\u0432\u043F\u0430\u0434\u0435\u043D\u0438\u044F \u0438\u043C\u0451\u043D \u043E\u0442\u043C\u0435\u043D\u044F\u044E\u0442 \u043F\u0435\u0440\u0435\u043D\u043E\u0441.").addText((text) => text.setValue(root).setPlaceholder("_todotracking").onChange((value) => {
       root = value;
     })).addButton((btn) => btn.setButtonText("\u0421\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043F\u0430\u043F\u043A\u0443").onClick(async () => {
       btn.setDisabled(true);
@@ -1689,14 +1820,14 @@ var PlannerSettings = class extends import_obsidian2.PluginSettingTab {
           await this.plugin.store.moveRoot(previousRoot);
           throw new Error(`\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438. \u0424\u0430\u0439\u043B\u044B \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u044B \u0432 ${previousRoot}. ${error instanceof Error ? error.message : String(error)}`);
         }
-        new import_obsidian2.Notice(`Dayline: \u043F\u0430\u043F\u043A\u0430 ${this.plugin.settings.root}`);
+        new import_obsidian2.Notice(`Smart Todo: \u043F\u0430\u043F\u043A\u0430 ${this.plugin.settings.root}`);
       } catch (error) {
         new import_obsidian2.Notice(error instanceof Error ? error.message : String(error), 9e3);
       } finally {
         btn.setDisabled(false);
       }
     }));
-    new import_obsidian2.Setting(container).setName("\u041F\u0435\u0440\u0435\u043D\u043E\u0441\u0438\u0442\u044C \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438").setDesc("\u0417\u0430\u0434\u0430\u0447\u0438 \u0434\u043D\u044F \u0441 \u043F\u0440\u043E\u0448\u0435\u0434\u0448\u0435\u0439 \u0434\u0430\u0442\u043E\u0439 \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u044F\u0442\u0441\u044F \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F \u043F\u0440\u0438 \u0437\u0430\u043F\u0443\u0441\u043A\u0435, \u0432\u043E\u0437\u0432\u0440\u0430\u0449\u0435\u043D\u0438\u0438 \u0432 \u043F\u0440\u0438\u043B\u043E\u0436\u0435\u043D\u0438\u0435 \u0438 \u0441\u043C\u0435\u043D\u0435 \u0434\u043D\u044F. \u041F\u043B\u0430\u043D\u044B \u043D\u0435\u0434\u0435\u043B\u0438, \u043C\u0435\u0441\u044F\u0446\u0430 \u0438 \u0433\u043E\u0434\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u044E\u0442 \u0441\u0432\u043E\u0439 \u043F\u0435\u0440\u0438\u043E\u0434.").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoRollover).onChange(async (value) => {
+    new import_obsidian2.Setting(container).setName("\u0410\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432 12:00").setDesc("\u0412 \u043F\u043E\u043B\u0434\u0435\u043D\u044C \u043F\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0438 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430 \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u043F\u0440\u043E\u0448\u0435\u0434\u0448\u0438\u0445 \u0434\u043D\u0435\u0439 \u043F\u043E\u043B\u0443\u0447\u0430\u044E\u0442 \u043D\u043E\u0432\u0443\u044E \u0434\u0430\u0442\u0443. \u0415\u0441\u043B\u0438 Obsidian \u0431\u044B\u043B \u0437\u0430\u043A\u0440\u044B\u0442, \u043F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043D\u0430\u044F \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F \u043F\u0440\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0438. \u0414\u043E \u043F\u043E\u043B\u0443\u0434\u043D\u044F \u0432\u0447\u0435\u0440\u0430\u0448\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u043D\u0435 \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u044F\u0442\u0441\u044F. \u0418\u0441\u0445\u043E\u0434\u043D\u0430\u044F \u0434\u0430\u0442\u0430 \u0438 \u0432\u0440\u0435\u043C\u044F \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u044E\u0442\u0441\u044F \u0432 \u0438\u0441\u0442\u043E\u0440\u0438\u0438. \u041F\u043B\u0430\u043D\u044B \u043D\u0435\u0434\u0435\u043B\u0438, \u043C\u0435\u0441\u044F\u0446\u0430 \u0438 \u0433\u043E\u0434\u0430 \u043D\u0435 \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u044F\u0442\u0441\u044F.").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoRollover).onChange(async (value) => {
       this.plugin.settings.autoRollover = value;
       await this.plugin.saveSettings();
       if (value) {
@@ -1708,11 +1839,12 @@ var PlannerSettings = class extends import_obsidian2.PluginSettingTab {
       this.plugin.settings.showCompleted = value;
       await this.plugin.saveSettings();
     }));
+    container.append(el("p", "dl-settings-help", "\u041A\u043E\u0440\u0437\u0438\u043D\u0430 .trash \u043D\u0430\u0445\u043E\u0434\u0438\u0442\u0441\u044F \u0432 \u043A\u043E\u0440\u043D\u0435 \u0445\u0440\u0430\u043D\u0438\u043B\u0438\u0449\u0430. \u0423\u0434\u0430\u043B\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u043F\u0435\u0440\u0435\u043C\u0435\u0449\u0430\u044E\u0442\u0441\u044F \u0442\u0443\u0434\u0430. Smart Todo \u043D\u0435 \u043E\u0447\u0438\u0449\u0430\u0435\u0442 \u043A\u043E\u0440\u0437\u0438\u043D\u0443 \u0430\u0432\u0442\u043E\u043C\u0430\u0442\u0438\u0447\u0435\u0441\u043A\u0438; \u0444\u0430\u0439\u043B\u044B \u043E\u0441\u0442\u0430\u044E\u0442\u0441\u044F \u0434\u043E \u0440\u0443\u0447\u043D\u043E\u0433\u043E \u0443\u0434\u0430\u043B\u0435\u043D\u0438\u044F. \u0414\u043B\u044F \u0432\u043E\u0441\u0441\u0442\u0430\u043D\u043E\u0432\u043B\u0435\u043D\u0438\u044F \u0432\u0435\u0440\u043D\u0438\u0442\u0435 \u0444\u0430\u0439\u043B \u0432 \u0438\u0441\u0445\u043E\u0434\u043D\u0443\u044E \u043F\u0430\u043F\u043A\u0443 tasks, goals \u0438\u043B\u0438 habits."));
     const help = el("div", "dl-settings-help");
     help.append(el("h3", "", "\u0415\u0441\u043B\u0438 \u0445\u043E\u0442\u0438\u0442\u0435 \u043E\u0441\u0442\u0430\u0432\u0438\u0442\u044C Calendar"), el("p", "", "\u0412 Daily notes \u0443\u043A\u0430\u0436\u0438\u0442\u0435 \u043F\u0430\u043F\u043A\u0443 \u043D\u0438\u0436\u0435 \u0438 \u0444\u043E\u0440\u043C\u0430\u0442 YYYY-MM-DD. \u0412 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445 Calendar \u0437\u0430\u0434\u0430\u0439\u0442\u0435 \u043F\u0430\u043F\u043A\u0443 \u043D\u0435\u0434\u0435\u043B\u044C \u0438 \u0444\u043E\u0440\u043C\u0430\u0442 GGGG-[W]WW. \u0422\u043E\u0433\u0434\u0430 \u043E\u0431\u0430 \u043A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044F \u0431\u0443\u0434\u0443\u0442 \u043E\u0442\u043A\u0440\u044B\u0432\u0430\u0442\u044C \u043E\u0434\u043D\u0438 \u0438 \u0442\u0435 \u0436\u0435 \u0437\u0430\u043C\u0435\u0442\u043A\u0438."));
     const paths2 = el("pre", "", `\u0414\u043D\u0438: ${this.plugin.settings.root}/days
 \u041D\u0435\u0434\u0435\u043B\u0438: ${this.plugin.settings.root}/weeks`);
-    help.append(paths2, el("p", "", "Calendar \u043F\u043E-\u043F\u0440\u0435\u0436\u043D\u0435\u043C\u0443 \u0441\u043E\u0437\u0434\u0430\u0451\u0442 \u0437\u0430\u043C\u0435\u0442\u043A\u0438 \u043F\u043E \u0441\u0432\u043E\u0438\u043C \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C. \u0412 \u043A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u0435 Dayline \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0434\u043D\u044F \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u0451\u0442 \u0444\u0430\u0439\u043B\u043E\u0432. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u043C\u0435\u0442\u043A\u0438 \u043C\u043E\u0436\u043D\u043E \u043F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432 \u044D\u0442\u0438 \u043F\u0430\u043F\u043A\u0438 \u0447\u0435\u0440\u0435\u0437 \u0444\u0430\u0439\u043B\u043E\u0432\u044B\u0439 \u043F\u0440\u043E\u0432\u043E\u0434\u043D\u0438\u043A Obsidian \u2014 \u0441\u0441\u044B\u043B\u043A\u0438 \u043E\u0431\u043D\u043E\u0432\u044F\u0442\u0441\u044F \u0448\u0442\u0430\u0442\u043D\u043E."), el("h3", "", "\u0417\u0430\u0434\u0430\u0447\u0438 \u0438\u0437 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0445 \u0437\u0430\u043C\u0435\u0442\u043E\u043A"), el("p", "", "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0437\u0430\u043C\u0435\u0442\u043A\u0443 \u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043A\u043E\u043C\u0430\u043D\u0434\u0443 \xABDayline: \u0421\u043E\u0431\u0440\u0430\u0442\u044C \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0438\u0437 \u043E\u0442\u043A\u0440\u044B\u0442\u043E\u0439 \u0437\u0430\u043C\u0435\u0442\u043A\u0438\xBB. \u041F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0441\u043F\u0438\u0441\u043E\u043A \u0434\u043B\u044F \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0430 \u043F\u0435\u0440\u0435\u0434 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0435\u043C."));
+    help.append(paths2, el("p", "", "Calendar \u043F\u043E-\u043F\u0440\u0435\u0436\u043D\u0435\u043C\u0443 \u0441\u043E\u0437\u0434\u0430\u0451\u0442 \u0437\u0430\u043C\u0435\u0442\u043A\u0438 \u043F\u043E \u0441\u0432\u043E\u0438\u043C \u043F\u0440\u0430\u0432\u0438\u043B\u0430\u043C. \u0412 \u043A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u0435 Smart Todo \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440 \u0434\u043D\u044F \u043D\u0435 \u0441\u043E\u0437\u0434\u0430\u0451\u0442 \u0444\u0430\u0439\u043B\u043E\u0432. \u0421\u0442\u0430\u0440\u044B\u0435 \u0437\u0430\u043C\u0435\u0442\u043A\u0438 \u043C\u043E\u0436\u043D\u043E \u043F\u0435\u0440\u0435\u043C\u0435\u0441\u0442\u0438\u0442\u044C \u0432 \u044D\u0442\u0438 \u043F\u0430\u043F\u043A\u0438 \u0447\u0435\u0440\u0435\u0437 \u0444\u0430\u0439\u043B\u043E\u0432\u044B\u0439 \u043F\u0440\u043E\u0432\u043E\u0434\u043D\u0438\u043A Obsidian \u2014 \u0441\u0441\u044B\u043B\u043A\u0438 \u043E\u0431\u043D\u043E\u0432\u044F\u0442\u0441\u044F \u0448\u0442\u0430\u0442\u043D\u043E."), el("h3", "", "\u0417\u0430\u0434\u0430\u0447\u0438 \u0438\u0437 \u0441\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0445 \u0437\u0430\u043C\u0435\u0442\u043E\u043A"), el("p", "", "\u041E\u0442\u043A\u0440\u043E\u0439\u0442\u0435 \u0437\u0430\u043C\u0435\u0442\u043A\u0443 \u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0438\u0442\u0435 \u043A\u043E\u043C\u0430\u043D\u0434\u0443 \xABSmart Todo: \u0421\u043E\u0431\u0440\u0430\u0442\u044C \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0438\u0437 \u043E\u0442\u043A\u0440\u044B\u0442\u043E\u0439 \u0437\u0430\u043C\u0435\u0442\u043A\u0438\xBB. \u041F\u043E\u044F\u0432\u0438\u0442\u0441\u044F \u0441\u043F\u0438\u0441\u043E\u043A \u0434\u043B\u044F \u043F\u0440\u043E\u0441\u043C\u043E\u0442\u0440\u0430 \u043F\u0435\u0440\u0435\u0434 \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u0435\u043C."));
     container.append(help);
   }
 };

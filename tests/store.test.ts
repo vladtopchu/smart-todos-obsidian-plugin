@@ -3,9 +3,26 @@ import { PlannerStore, normalizeRoot } from '../src/store';
 import { DEFAULT_SETTINGS } from '../src/types';
 import { codec, MemoryStorage } from './helpers';
 import { importLegacy, legacyTasks } from '../src/legacy';
+import { parseDate } from '../src/dates';
 
-function setup(today = '2026-10-30') { const storage = new MemoryStorage(); let date = today; const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS }, () => date); return { store, storage, setDate: (value: string) => { date = value; } }; }
+function setup(today = '2026-10-30') { const storage = new MemoryStorage(); let date = today; let hour = 12; let minute = 0; const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS }, () => date, () => { const now = parseDate(date); now.setHours(hour, minute, 0, 0); return now; }); return { store, storage, setDate: (value: string) => { date = value; }, setTime: (h: number, m = 0) => { hour = h; minute = m; } }; }
 describe('atomic task lifecycle', () => {
+  it('waits until noon, preserves yesterday before cutoff, and records source, target and execution time once', async () => {
+    const { store, setTime } = setup(); const path = await store.createTask({ title: 'Yesterday', scheduled: '2026-10-29' });
+    setTime(0); expect(await store.rollover()).toBe(0);
+    setTime(11, 59); expect(await store.rollover()).toBe(0); expect((await store.snapshot()).tasks[0]!.scheduled).toBe('2026-10-29');
+    setTime(12); expect(await store.rollover()).toBe(1); expect(await store.rollover()).toBe(0);
+    expect((await store.snapshot()).tasks[0]).toMatchObject({ path, initialScheduled: '2026-10-29', scheduled: '2026-10-30', history: [{ type: 'moved', from: '2026-10-29', to: '2026-10-30', automatic: true, at: expect.any(String), effectiveAt: expect.any(String) }] });
+    const h = (await store.snapshot()).tasks[0]!.history[0]!; expect(new Date(h.effectiveAt!).getHours()).toBe(12); expect(h.at).toBe(h.effectiveAt);
+  });
+  it('catches up only elapsed noon deadlines without inventing offline history', async () => {
+    const { store, setTime } = setup(); await store.createTask({ title: 'Old', scheduled: '2026-10-20' });
+    setTime(9); expect(await store.rollover()).toBe(1);
+    let task = (await store.snapshot()).tasks[0]!; expect(task.scheduled).toBe('2026-10-29'); expect(task.history).toHaveLength(1);
+    expect(task.history[0]).toMatchObject({ date: '2026-10-30', from: '2026-10-20', to: '2026-10-29' }); expect(new Date(task.history[0]!.at!).getHours()).toBe(9);
+    setTime(12); expect(await store.rollover()).toBe(1); task = (await store.snapshot()).tasks[0]!;
+    expect(task.initialScheduled).toBe('2026-10-20'); expect(task.history).toHaveLength(2); expect(task.scheduled).toBe('2026-10-30');
+  });
   it('preserves colored labels through rollover and completion independently of goals', async () => {
     const { store } = setup();
     const path = await store.createTask({ title: 'Labeled', scheduled: '2026-10-20', goal: 'goal-1', labels: [{ name: 'Работа', color: 'blue' }, { name: 'Срочно', color: 'red' }] });
@@ -83,6 +100,17 @@ describe('atomic task lifecycle', () => {
   });
 });
 describe('habit records', () => {
+  it('trashes goals and habits recoverably without deleting linked tasks or habit history', async () => {
+    const { store, storage } = setup(); await store.saveGoal({ title: 'Goal', target: '', description: '' }); const goal = (await store.snapshot()).goals[0]!;
+    const task = await store.createTask({ title: 'Linked', scheduled: '2026-10-30', goal: goal.id });
+    await store.saveHabit({ title: 'Habit', days: [5], description: '' }); const habit = (await store.snapshot()).habits[0]!; await store.toggleHabit(habit.path, '2026-10-30');
+    const habitText = await storage.read(habit.path); await store.deleteGoal(goal.path); await store.deleteHabit(habit.path);
+    const data = await store.snapshot(); expect(data.goals).toHaveLength(0); expect(data.habits).toHaveLength(0); expect(storage.exists(task)).toBe(true); expect(data.tasks[0]!.goal).toBe(goal.id);
+    expect(storage.trashed.get(habit.path)).toBe(habitText); expect(storage.trashed.has(goal.path)).toBe(true);
+    await expect(store.deleteGoal(task)).rejects.toThrow();
+    storage.files.set(goal.path, storage.trashed.get(goal.path)!); storage.files.set(habit.path, habitText);
+    expect((await store.snapshot()).goals[0]!.id).toBe(goal.id); expect((await store.snapshot()).habits[0]!.completions).toEqual(['2026-10-30']);
+  });
   it('toggles one day without losing other dates and rejects future/rest days', async () => {
     const { store, setDate } = setup(); await store.saveHabit({ title: 'Read', days: [1, 3, 5], description: '' }); const path = (await store.snapshot()).habits[0]!.path;
     await store.toggleHabit(path, '2026-10-30'); setDate('2026-11-02'); await store.toggleHabit(path, '2026-11-02');

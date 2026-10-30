@@ -8,8 +8,8 @@ import { button, el, field, input } from '../src/ui/dom';
 
 // Same store and UI as the plugin. Only the Vault adapter is replaced in this sandbox.
 class BrowserStorage implements Storage {
-  private files: Record<string, string> = JSON.parse(localStorage.getItem('dayline-demo-v1') ?? '{}');
-  private persist(): void { localStorage.setItem('dayline-demo-v1', JSON.stringify(this.files)); }
+  private files: Record<string, string> = JSON.parse((localStorage.getItem('smart-todo-demo-v1') ?? localStorage.getItem('dayline-demo-v1')) ?? '{}');
+  private persist(): void { localStorage.setItem('smart-todo-demo-v1', JSON.stringify(this.files)); }
   list(): string[] { return Object.keys(this.files).filter(path => !path.startsWith('.trash/')); }
   async exists(path: string): Promise<boolean> { return Object.hasOwn(this.files, path); }
   async read(path: string): Promise<string> { const text = this.files[path]; if (text === undefined) throw new Error('Файл не найден'); return text; }
@@ -25,7 +25,7 @@ const codec = {
   parse: (text: string): Record<string, unknown> => Object.fromEntries(text.split('\n').filter(Boolean).map(line => { const i = line.indexOf(':'); return [line.slice(0, i), JSON.parse(line.slice(i + 1).trim())]; })),
 };
 const storage = new BrowserStorage();
-const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem('dayline-demo-settings') ?? '{}') });
+const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS, ...JSON.parse((localStorage.getItem('smart-todo-demo-settings') ?? localStorage.getItem('dayline-demo-settings')) ?? '{}') });
 const today = dateKey();
 if (!storage.list().length) {
   await store.saveGoal({ title: 'Запустить свой проект', target: shiftDay(today, 60), description: 'Превратить идею в то, чем хочется пользоваться каждый день.' });
@@ -58,14 +58,14 @@ function dialog(title: string, render: (body: HTMLElement, close: () => void) =>
 const host: DashboardHost = {
   notify,
   dialog,
-  persistSettings: async () => { localStorage.setItem('dayline-demo-settings', JSON.stringify(store.settings)); },
+  persistSettings: async () => { localStorage.setItem('smart-todo-demo-settings', JSON.stringify(store.settings)); },
   openFile: async path => { const text = await storage.read(path); dialog('Markdown · ' + path.split('/').pop(), (body, close) => { const editor = el('textarea', 'demo-source'); editor.value = text; editor.spellcheck = false; body.append(el('p', 'dl-subtitle', path), editor, button('Сохранить Markdown', () => { void storage.process(path, () => editor.value).then(async () => { close(); await dashboard.refresh(); }); }, 'dl-button dl-button-primary')); }); },
-  settings: () => dialog('Настройки Dayline · демо', (body, close) => {
+  settings: () => dialog('Настройки Smart Todo · демо', (body, close) => {
     body.append(el('p', 'dl-subtitle', 'Это браузерная песочница. Данные сохраняются только в localStorage этого браузера. В Obsidian используются файлы вашего хранилища.'));
     const root = input(store.settings.root); body.append(field('Папка планировщика', root));
     const rollover = input('', 'checkbox'); rollover.checked = store.settings.autoRollover; body.append(field('Переносить незавершённые задачи', rollover));
-    body.append(button('Сохранить', () => { void (async () => { try { await store.moveRoot(root.value); store.settings.autoRollover = rollover.checked; localStorage.setItem('dayline-demo-settings', JSON.stringify(store.settings)); await store.rollover(); close(); await dashboard.refresh(); } catch (e) { notify(String(e)); } })(); }, 'dl-button dl-button-primary'));
-    body.append(button('Скачать все Markdown-файлы', () => { void (async () => { const files: Record<string, string> = {}; for (const path of storage.list()) files[path] = await storage.read(path); const url = URL.createObjectURL(new Blob([JSON.stringify(files, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = 'dayline-demo-files.json'; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); })(); }, 'dl-button dl-button-secondary'));
+    body.append(button('Сохранить', () => { void (async () => { try { await store.moveRoot(root.value); store.settings.autoRollover = rollover.checked; localStorage.setItem('smart-todo-demo-settings', JSON.stringify(store.settings)); await store.rollover(); close(); await dashboard.refresh(); } catch (e) { notify(String(e)); } })(); }, 'dl-button dl-button-primary'));
+    body.append(button('Скачать все Markdown-файлы', () => { void (async () => { const files: Record<string, string> = {}; for (const path of storage.list()) files[path] = await storage.read(path); const url = URL.createObjectURL(new Blob([JSON.stringify(files, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = 'smart-todo-demo-files.json'; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); })(); }, 'dl-button dl-button-secondary'));
   }),
 };
 const dashboard = new Dashboard(document.querySelector<HTMLElement>('#app')!, store, host); await dashboard.refresh();
