@@ -9,7 +9,10 @@ import { codec, MemoryStorage } from './helpers';
 
 describe('Smart Todo identity and original Markdown compatibility', () => {
   it('uses its own install/update ID and stays installable on mobile', () => {
-    expect(PLUGIN_ID).toBe('smart-todo-vlad-9c82e1b4');
+    expect(PLUGIN_ID).toBe('smart-todo-vlad');
+    expect(PLUGIN_ID).toMatch(/^[a-z]+(?:-[a-z]+)*$/);
+    expect(PLUGIN_ID).not.toContain('obsidian');
+    expect(PLUGIN_ID).not.toMatch(/plugin$/);
     expect(PLUGIN_NAME).toBe('Smart Todo');
     expect(manifest.version).toBe(pkg.version);
     expect(manifest.isDesktopOnly).toBe(false);

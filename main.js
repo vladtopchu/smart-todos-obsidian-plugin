@@ -54,7 +54,7 @@ var manifest_default;
 var init_manifest = __esm({
   "manifest.json"() {
     manifest_default = {
-      id: "smart-todo-vlad-9c82e1b4",
+      id: "smart-todo-vlad",
       name: "Smart Todo",
       version: "1.0.1",
       minAppVersion: "1.8.0",

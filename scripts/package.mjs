@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
-if (manifest.id !== 'smart-todo-vlad-9c82e1b4' || manifest.name !== 'Smart Todo') throw new Error('Неверный ID или название личной сборки Smart Todo.');
+if (manifest.id !== 'smart-todo-vlad' || manifest.name !== 'Smart Todo') throw new Error('Неверный ID или название личной сборки Smart Todo.');
 const destination = path.join(root, 'dist', manifest.id);
 // Rebuild only this generated release folder; exclude local data.json and stale files.
 await rm(destination, { recursive: true, force: true });
