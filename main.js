@@ -56,7 +56,7 @@ var init_manifest = __esm({
     manifest_default = {
       id: "smart-todos",
       name: "Smart Todo",
-      version: "1.0.1",
+      version: "1.0.2",
       minAppVersion: "1.8.0",
       description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u0437\u0430\u0434\u0430\u0447\u0438 \u0441 \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441\u043E\u043C, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
       author: "Personal build for Vlad",

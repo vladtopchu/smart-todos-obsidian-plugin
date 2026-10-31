@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import manifest from '../manifest.json';
 import pkg from '../package.json';
+import versions from '../versions.json';
 import { PLUGIN_ID, PLUGIN_NAME, matchesEntityType } from '../src/identity';
 import { PlannerStore } from '../src/store';
 import { DEFAULT_SETTINGS } from '../src/types';
@@ -15,6 +16,7 @@ describe('Smart Todo identity and original Markdown compatibility', () => {
     expect(PLUGIN_ID).not.toMatch(/plugin$/);
     expect(PLUGIN_NAME).toBe('Smart Todo');
     expect(manifest.version).toBe(pkg.version);
+    expect(versions[manifest.version as keyof typeof versions]).toBe(manifest.minAppVersion);
     expect(manifest.isDesktopOnly).toBe(false);
     expect(matchesEntityType('other-plugin-task', 'task')).toBe(false);
   });

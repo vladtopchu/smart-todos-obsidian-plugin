@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const manifest = JSON.parse(await readFile(path.join(root, 'manifest.json'), 'utf8'));
 if (manifest.id !== 'smart-todos' || manifest.name !== 'Smart Todo') throw new Error('Неверный ID или название личной сборки Smart Todo.');
+const pkg = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
+const versions = JSON.parse(await readFile(path.join(root, 'versions.json'), 'utf8'));
+if (manifest.version !== pkg.version || versions[manifest.version] !== manifest.minAppVersion) throw new Error('Версии manifest.json, package.json и versions.json не согласованы.');
+if (process.env.RELEASE_TAG && process.env.RELEASE_TAG !== manifest.version) throw new Error('Тег релиза должен совпадать с версией manifest.json (без префикса v).');
 const destination = path.join(root, 'dist', manifest.id);
 // Rebuild only this generated release folder; exclude local data.json and stale files.
 await rm(destination, { recursive: true, force: true });
