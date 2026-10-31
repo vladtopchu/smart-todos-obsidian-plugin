@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { Dashboard, type DashboardHost } from '../src/ui/dashboard';
 import { PlannerStore } from '../src/store';
 import { DEFAULT_SETTINGS } from '../src/types';
@@ -12,7 +12,7 @@ function setup() {
   const root = document.createElement('div'); document.body.append(root);
   const messages: string[] = [];
   const host: DashboardHost = { notify: message => messages.push(message), openFile: async () => {}, settings: () => {}, dialog: (_title, render) => { const body = document.createElement('div'); document.body.append(body); render(body, () => body.remove()); } };
-  return { storage, store, root, messages, dashboard: new Dashboard(root, store, host) };
+  return { storage, store, root, messages, host, dashboard: new Dashboard(root, store, host) };
 }
 describe('planner UI', () => {
   it('browses whole weeks across year boundaries without switching into days', async () => {
@@ -63,6 +63,63 @@ describe('planner UI', () => {
     form.querySelector<HTMLSelectElement>('[aria-label="Цвет метки"]')!.value = 'red';
     await form.onsubmit!(new Event('submit', { cancelable: true }) as SubmitEvent);
     expect((await store.snapshot()).tasks[0]!.labels).toEqual([{ name: 'Работа', color: 'red' }]);
+  });
+  it('remembers labels after their last task is deleted and reuses them after reopening', async () => {
+    const { store, dashboard, root, storage, host } = setup();
+    let saved = { ...store.settings };
+    host.persistSettings = vi.fn(async () => { saved = structuredClone(store.settings); });
+    const path = await store.createTask({ title: 'Source', scheduled: dateKey(), labels: [{ name: 'Работа', color: 'purple' }] });
+    await dashboard.refresh();
+    expect(host.persistSettings).toHaveBeenCalledTimes(1);
+    await store.deleteTask(path); await dashboard.refresh();
+    expect(host.persistSettings).toHaveBeenCalledTimes(1);
+    dashboard.destroy();
+    const reopened = new Dashboard(root, new PlannerStore(storage, codec, saved), host);
+    await reopened.refresh(); reopened.taskDialog();
+    const form = document.querySelector<HTMLFormElement>('.dl-form')!;
+    const choice = form.querySelector<HTMLButtonElement>('.dl-label-suggestions button')!;
+    expect(choice.textContent).toBe('Работа'); choice.click();
+    form.querySelector<HTMLInputElement>('input[type="text"]')!.value = 'Reused';
+    await form.onsubmit!(new Event('submit', { cancelable: true }) as SubmitEvent);
+    expect((await store.snapshot()).tasks[0]!.labels).toEqual([{ name: 'Работа', color: 'purple' }]);
+  });
+  it('searches saved labels, deduplicates names ignoring case and prevents duplicate selection', async () => {
+    const { store, dashboard } = setup();
+    store.settings.labelPresets = [{ name: 'Работа', color: 'red' }, { name: 'Дом', color: 'blue' }];
+    await store.createTask({ title: 'Source', scheduled: dateKey(), labels: [{ name: 'работа', color: 'green' }] });
+    await dashboard.refresh(); dashboard.taskDialog();
+    const group = document.querySelector('.dl-label-editor')!;
+    expect(group.querySelectorAll('.dl-label-suggestions button')).toHaveLength(2);
+    const name = group.querySelector<HTMLInputElement>('[aria-label="Название метки"]')!;
+    name.value = 'РАБ'; name.dispatchEvent(new Event('input'));
+    expect(group.querySelectorAll('.dl-label-suggestions button')).toHaveLength(1);
+    group.querySelector<HTMLButtonElement>('.dl-label-suggestions button')!.click();
+    const selected = [...group.querySelectorAll<HTMLButtonElement>('.dl-label-suggestions button')].find(button => button.textContent === 'Работа')!;
+    expect(selected.disabled).toBe(true); expect(selected.classList.contains('dl-label-red')).toBe(true);
+    selected.click(); expect(group.querySelector('.dl-label-chips')!.children).toHaveLength(1);
+  });
+  it('retries saving the label library after a settings write fails', async () => {
+    const { store, dashboard, host, messages } = setup();
+    host.persistSettings = vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined);
+    await store.createTask({ title: 'Source', scheduled: dateKey(), labels: [{ name: 'Дом', color: 'green' }] });
+    await dashboard.refresh(); expect(messages).toHaveLength(1);
+    await dashboard.refresh(); expect(host.persistSettings).toHaveBeenCalledTimes(2);
+    await dashboard.refresh(); expect(host.persistSettings).toHaveBeenCalledTimes(2);
+  });
+  it('completes and reopens a task with its labelled native checkbox', async () => {
+    const { store, dashboard, root } = setup();
+    await store.createTask({ title: 'Check me', scheduled: dateKey() }); await dashboard.refresh();
+    const checkbox = () => root.querySelector<HTMLInputElement>('.dl-checkbox')!;
+    expect(checkbox().labels?.[0]?.querySelector('svg[aria-hidden="true"]')).not.toBeNull();
+    checkbox().click();
+    await vi.waitFor(() => expect(checkbox().getAttribute('aria-label')).toBe('Вернуть в работу: Check me'));
+    expect(checkbox().checked).toBe(true);
+    expect((await store.snapshot()).tasks[0]!.status).toBe('done');
+    expect(checkbox().getAttribute('aria-label')).toBe('Вернуть в работу: Check me');
+    checkbox().click();
+    await vi.waitFor(() => expect(checkbox().getAttribute('aria-label')).toBe('Выполнить: Check me'));
+    expect(checkbox().checked).toBe(false);
+    expect((await store.snapshot()).tasks[0]!.status).toBe('open');
   });
   it('browses calendar and period views without writing any note', async () => {
     const { storage, dashboard, root } = setup(); await dashboard.refresh();

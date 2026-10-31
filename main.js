@@ -56,7 +56,7 @@ var init_manifest = __esm({
     manifest_default = {
       id: "smart-todos",
       name: "Smart Todo",
-      version: "1.0.2",
+      version: "1.0.3",
       minAppVersion: "1.8.0",
       description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u0437\u0430\u0434\u0430\u0447\u0438 \u0441 \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441\u043E\u043C, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
       author: "Personal build for Vlad",
@@ -354,6 +354,7 @@ var PlannerStore = class {
     this.clock = clock;
     __publicField(this, "queue", Promise.resolve());
     settings.root = normalizeRoot(settings.root);
+    settings.labelPresets = normalizeLabels(settings.labelPresets);
   }
   serial(action) {
     const next = this.queue.then(action, action);
@@ -636,7 +637,7 @@ period: "${periodKey(scope, date)}"
 };
 
 // src/types.ts
-var DEFAULT_SETTINGS = { root: "_todotracking", autoRollover: true, showCompleted: true, tasksOnly: false };
+var DEFAULT_SETTINGS = { root: "_todotracking", autoRollover: true, showCompleted: true, tasksOnly: false, labelPresets: [] };
 
 // src/ui/dom.ts
 function el(tag, className = "", text) {
@@ -780,6 +781,7 @@ var Dashboard = class {
     __publicField(this, "statsScope", "week");
     __publicField(this, "generation", 0);
     __publicField(this, "disposed", false);
+    __publicField(this, "labelsNeedSave", false);
     root.classList.add("dl-app");
   }
   destroy() {
@@ -795,7 +797,20 @@ var Dashboard = class {
     const snapshot = await this.store.snapshot();
     if (this.disposed || generation !== this.generation) return;
     this.data = snapshot;
+    const presets = normalizeLabels([...this.store.settings.labelPresets, ...snapshot.tasks.flatMap((task) => task.labels)]);
+    const presetsChanged = JSON.stringify(presets) !== JSON.stringify(this.store.settings.labelPresets);
+    this.store.settings.labelPresets = presets;
+    if (presetsChanged) this.labelsNeedSave = true;
     this.render();
+    if (this.labelsNeedSave && this.host.persistSettings) {
+      this.labelsNeedSave = false;
+      try {
+        await this.host.persistSettings();
+      } catch (e) {
+        this.labelsNeedSave = true;
+        this.host.notify("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u0441\u043F\u0438\u0441\u043E\u043A \u043C\u0435\u0442\u043E\u043A. \u041F\u043E\u0432\u0442\u043E\u0440\u0438\u0442\u0435 \u0441\u043E\u0445\u0440\u0430\u043D\u0435\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u0447\u0438.");
+      }
+    }
   }
   navigate(screen, date = this.selected) {
     this.screen = screen;
@@ -1075,7 +1090,9 @@ var Dashboard = class {
     const moved = task.history.filter((h) => h.type === "moved");
     if (moved.length) metadata.append(el("span", "dl-moved", `\u21AA \u0441 ${displayDate((_a = moved[0].from) != null ? _a : task.created)} \xB7 ${moved.length} \u043F\u0435\u0440\u0435\u043D\u043E\u0441${moved.length === 1 ? "" : "\u043E\u0432"}`));
     const checkTarget = el("label", "dl-checkbox-target");
-    checkTarget.append(check);
+    const checkMark = icon("check");
+    checkMark.classList.add("dl-checkbox-mark");
+    checkTarget.append(check, checkMark);
     if (metadata.childElementCount) body.append(metadata);
     row.append(checkTarget, body);
     const menu = button("\u0414\u0435\u0439\u0441\u0442\u0432\u0438\u044F \u0441 \u0437\u0430\u0434\u0430\u0447\u0435\u0439", () => this.taskActions(task), "dl-icon-button dl-row-menu", "dots");
@@ -1380,16 +1397,33 @@ var Dashboard = class {
     group.setAttribute("aria-label", "\u041C\u0435\u0442\u043A\u0438 \u0437\u0430\u0434\u0430\u0447\u0438");
     group.append(el("div", "dl-field-label", "\u041C\u0435\u0442\u043A\u0438"));
     const chips = el("div", "dl-label-chips");
+    const available = normalizeLabels([...this.store.settings.labelPresets, ...this.data.tasks.flatMap((task) => task.labels)]);
+    const suggestions = el("div", "dl-label-chips dl-label-suggestions");
+    suggestions.setAttribute("aria-label", "\u0421\u043E\u0445\u0440\u0430\u043D\u0451\u043D\u043D\u044B\u0435 \u043C\u0435\u0442\u043A\u0438");
+    const hint = el("span", "dl-form-hint", "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0440\u0430\u043D\u0435\u0435");
     const render = () => {
       chips.replaceChildren();
       labels.forEach((label, index) => chips.append(button(`${label.name} \xD7`, () => {
         labels.splice(index, 1);
         render();
       }, `dl-label dl-label-${label.color}`)));
+      suggestions.replaceChildren();
+      for (const label of available.filter((label2) => label2.name.toLocaleLowerCase().includes(name.value.trim().toLocaleLowerCase()))) {
+        const choice = button(label.name, () => {
+          labels.push({ ...label });
+          name.value = "";
+          render();
+        }, `dl-label dl-label-${label.color}`);
+        choice.disabled = labels.some((selected) => selected.name.toLocaleLowerCase() === label.name.toLocaleLowerCase());
+        choice.setAttribute("aria-pressed", String(choice.disabled));
+        suggestions.append(choice);
+      }
+      hint.hidden = !suggestions.childElementCount;
     };
     const name = input("", "text", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043C\u0435\u0442\u043A\u0438");
     name.maxLength = 60;
     name.setAttribute("aria-label", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043C\u0435\u0442\u043A\u0438");
+    name.oninput = render;
     const color = select(LABEL_COLORS, "blue");
     color.setAttribute("aria-label", "\u0426\u0432\u0435\u0442 \u043C\u0435\u0442\u043A\u0438");
     const add = () => {
@@ -1406,20 +1440,7 @@ var Dashboard = class {
     };
     const controls = el("div", "dl-label-controls");
     controls.append(name, color, button("\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u043C\u0435\u0442\u043A\u0443", add, "dl-button dl-button-secondary", "plus"));
-    group.append(chips, controls);
-    const suggestions = el("div", "dl-label-chips");
-    const seen = /* @__PURE__ */ new Set();
-    for (const label of this.data.tasks.flatMap((task) => task.labels)) {
-      if (seen.has(label.name)) continue;
-      seen.add(label.name);
-      suggestions.append(button(label.name, () => {
-        if (!labels.some((l) => l.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) labels.push({ ...label });
-        render();
-      }, `dl-label dl-label-${label.color}`));
-    }
-    if (suggestions.childElementCount) {
-      group.append(el("span", "dl-form-hint", "\u0418\u0441\u043F\u043E\u043B\u044C\u0437\u043E\u0432\u0430\u043D\u043D\u044B\u0435 \u0440\u0430\u043D\u0435\u0435"), suggestions);
-    }
+    group.append(chips, controls, hint, suggestions);
     group.addEventListener("focusout", (event) => {
       if (!group.contains(event.relatedTarget) && name.value.trim()) add();
     });

@@ -29,4 +29,6 @@ jobs:
           gh release create "$RELEASE_TAG" --verify-tag --draft --title "$RELEASE_TAG" \
             dist/smart-todos/main.js \
             dist/smart-todos/manifest.json \
-            dist/smart-todos/styles.css
+            dist/smart-todos/styles.css \
+            "dist/smart-todo-$RELEASE_TAG.zip" \
+            "dist/smart-todo-$RELEASE_TAG.zip.sha256"

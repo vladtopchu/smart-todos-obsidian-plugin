@@ -102,12 +102,16 @@
 .dl-task-list { padding: 0 20px; }
 .dl-task-row { display: flex; align-items: flex-start; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--dl-line); }
 .dl-task-row:last-child { border-bottom: 0; }
-.dl-checkbox-target { display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; margin: -4px 0 -4px -7px; cursor: pointer; }
-.dl-app .dl-checkbox { appearance: none; -webkit-appearance: none; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--dl-muted); margin: 0; padding: 0; cursor: pointer; background: transparent; box-shadow: none; }
-.dl-app .dl-checkbox:checked { background: var(--dl-accent); border-color: var(--dl-accent); }
-.dl-app .dl-checkbox:checked::after { content: ''; display: block; width: 5px; height: 3px; border-left: 1px solid var(--dl-on-accent); border-bottom: 1px solid var(--dl-on-accent); transform: rotate(-45deg); margin: 2px 2px; }
+.dl-checkbox-target { position: relative; display: grid; place-items: center; width: 28px; height: 28px; flex: 0 0 28px; margin: -4px 0 -4px -7px; cursor: pointer; }
+.dl-app input[type=checkbox].dl-checkbox { appearance: none; -webkit-appearance: none; display: block; position: static; width: 18px; height: 18px; border-radius: 3px; border: 1px solid var(--dl-muted); margin: 0; padding: 0; cursor: pointer; background: transparent; box-shadow: none; transform: none; }
+.dl-app input[type=checkbox].dl-checkbox:checked { background: var(--dl-accent); border-color: var(--dl-accent); }
+/* Obsidian supplies a masked pseudo-element; use a separate SVG for a consistent mark. */
+.dl-app input[type=checkbox].dl-checkbox::before, .dl-app input[type=checkbox].dl-checkbox::after { content: none; display: none; }
+.dl-app .dl-checkbox-mark { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 14px; height: 14px; stroke-width: 2.5; color: var(--dl-on-accent); pointer-events: none; opacity: 0; }
+.dl-checkbox:checked + .dl-checkbox-mark { opacity: 1; }
 .dl-task-body { min-width: 0; flex: 1; }
-.dl-task-title { display: block; text-align: left; border: 0; padding: 0; line-height: 1.6; background: transparent !important; font-size: 12px !important; overflow-wrap: anywhere; }
+.dl-app .dl-task-title { display: block; width: 100%; min-width: 0; max-width: 100%; text-align: left; border: 0; padding: 0; line-height: 1.6; background: transparent !important; font-size: 12px !important; white-space: normal; overflow-wrap: anywhere; }
+.dl-task-title > span { display: block; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
 .dl-task-title:hover { color: var(--dl-accent); }
 .dl-task-row.is-done .dl-task-title { text-decoration: line-through; color: var(--dl-muted); }
 .dl-task-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin-top: 7px; font-size: 9px; color: var(--dl-muted); }
@@ -116,7 +120,7 @@
 .theme-dark .dl-tag-priority { background: transparent; color: var(--dl-danger); }
 .dl-task-goal, .dl-task-repeat { display: flex; align-items: center; gap: 4px; }
 .dl-task-goal svg, .dl-task-repeat svg { width: 11px; height: 11px; }
-.dl-row-menu { opacity: .5; margin-top: -3px !important; min-width: 26px; }
+.dl-row-menu { opacity: .5; margin-top: -3px !important; min-width: 26px; flex-shrink: 0; }
 .dl-task-row:hover .dl-row-menu { opacity: 1; }
 .dl-late { color: var(--dl-danger); }
 .dl-moved { color: var(--dl-muted); }
@@ -282,10 +286,11 @@
   .dl-habit-table { min-width: 430px; }
   .dl-task-panel > .dl-section-header { padding-left: 16px; padding-right: 16px; }
   .dl-task-panel .dl-search { max-width: 125px; }
-  .dl-task-title { font-size: 13px !important; }
+  .dl-app .dl-task-title { font-size: 13px !important; }
   .dl-task-row { padding-top: 14px; padding-bottom: 14px; }
-  .dl-row-menu { min-width: 35px; min-height: 35px; opacity: 1; }
-  .dl-checkbox-target { width: 32px; height: 32px; flex-basis: 32px; margin-top: -5px; margin-bottom: -5px; }
+  .dl-row-menu { min-width: 44px; min-height: 44px; opacity: 1; }
+  .dl-checkbox-target { width: 44px; height: 44px; flex-basis: 44px; margin-top: -8px; margin-bottom: -8px; }
+  .dl-app input[type=checkbox].dl-checkbox { width: 20px; height: 20px; }
   
   .dl-habit-daily { min-height: 44px; }
   .dl-heatmap { gap: 4px; }
@@ -334,7 +339,8 @@
 .dl-stat-row:last-child { border: 0; padding-bottom: 0; }
 .dl-stat-row > span:last-of-type { color: var(--dl-muted); font-size: 11px; }
 .dl-stat-row > .dl-meter { grid-column: 1 / -1; }
-.dl-label { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; background: transparent !important; }
+.dl-label { display: inline-flex; align-items: center; gap: 4px; max-width: 100%; border: 1px solid currentColor; border-radius: 3px; padding: 1px 6px; font-size: 10px; line-height: 1.6; white-space: normal; text-align: left; overflow-wrap: anywhere; background: transparent !important; }
+.dl-label > span { min-width: 0; }
 .dl-app .dl-label-gray, .dl-dialog .dl-label-gray { color: var(--dl-muted); }
 .dl-app .dl-label-red, .dl-dialog .dl-label-red { color: #ca253a; }
 .dl-app .dl-label-orange, .dl-dialog .dl-label-orange { color: #a64b00; }

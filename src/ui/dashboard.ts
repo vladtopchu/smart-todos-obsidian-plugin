@@ -31,6 +31,7 @@ export class Dashboard {
   private statsScope: Scope = 'week';
   private generation = 0;
   private disposed = false;
+  private labelsNeedSave = false;
   constructor(private root: HTMLElement, private store: PlannerStore, private host: DashboardHost) { root.classList.add('dl-app'); }
   destroy(): void { this.disposed = true; this.generation++; this.root.replaceChildren(); }
   isTasksOnlyMode(): boolean { return this.root.classList.contains('dl-tasks-only'); }
@@ -38,7 +39,17 @@ export class Dashboard {
     const generation = ++this.generation;
     const snapshot = await this.store.snapshot();
     if (this.disposed || generation !== this.generation) return;
-    this.data = snapshot; this.render();
+    this.data = snapshot;
+    const presets = normalizeLabels([...this.store.settings.labelPresets, ...snapshot.tasks.flatMap(task => task.labels)]);
+    const presetsChanged = JSON.stringify(presets) !== JSON.stringify(this.store.settings.labelPresets);
+    this.store.settings.labelPresets = presets;
+    if (presetsChanged) this.labelsNeedSave = true;
+    this.render();
+    if (this.labelsNeedSave && this.host.persistSettings) {
+      this.labelsNeedSave = false;
+      try { await this.host.persistSettings(); }
+      catch { this.labelsNeedSave = true; this.host.notify('Не удалось сохранить список меток. Повторите сохранение задачи.'); }
+    }
   }
   navigate(screen: Screen, date = this.selected): void { this.screen = screen; this.selected = screen === 'week' ? weekStart(date) : date; this.calendarMonth = date.slice(0, 7) + '-01'; this.query = ''; this.filter = 'all'; this.render(); }
   private async action(operation: () => Promise<unknown>, message?: string): Promise<void> {
@@ -174,7 +185,7 @@ export class Dashboard {
     if (showDate || task.scheduled !== this.selected) metadata.append(el('span', '', `${displayDate(task.scheduled)}${task.scope !== 'day' ? ` · ${SCOPES[task.scope]}` : ''}`));
     if (task.due) metadata.append(el('span', task.due < dateKey() && task.status === 'open' ? 'dl-late' : '', `До ${displayDate(task.due)}`));
     const moved = task.history.filter(h => h.type === 'moved'); if (moved.length) metadata.append(el('span', 'dl-moved', `↪ с ${displayDate(moved[0]!.from ?? task.created)} · ${moved.length} перенос${moved.length === 1 ? '' : 'ов'}`));
-    const checkTarget = el('label', 'dl-checkbox-target'); checkTarget.append(check);
+    const checkTarget = el('label', 'dl-checkbox-target'); const checkMark = icon('check'); checkMark.classList.add('dl-checkbox-mark'); checkTarget.append(check, checkMark);
     if (metadata.childElementCount) body.append(metadata); row.append(checkTarget, body);
     const menu = button('Действия с задачей', () => this.taskActions(task), 'dl-icon-button dl-row-menu', 'dots'); row.append(menu); return row;
   }
@@ -328,19 +339,26 @@ export class Dashboard {
     const group = el('section', 'dl-label-editor'); group.setAttribute('aria-label', 'Метки задачи');
     group.append(el('div', 'dl-field-label', 'Метки'));
     const chips = el('div', 'dl-label-chips');
-    const render = () => { chips.replaceChildren(); labels.forEach((label, index) => chips.append(button(`${label.name} ×`, () => { labels.splice(index, 1); render(); }, `dl-label dl-label-${label.color}`))); };
+    const available = normalizeLabels([...this.store.settings.labelPresets, ...this.data.tasks.flatMap(task => task.labels)]);
+    const suggestions = el('div', 'dl-label-chips dl-label-suggestions'); suggestions.setAttribute('aria-label', 'Сохранённые метки');
+    const hint = el('span', 'dl-form-hint', 'Использованные ранее');
+    const render = () => {
+      chips.replaceChildren(); labels.forEach((label, index) => chips.append(button(`${label.name} ×`, () => { labels.splice(index, 1); render(); }, `dl-label dl-label-${label.color}`)));
+      suggestions.replaceChildren();
+      for (const label of available.filter(label => label.name.toLocaleLowerCase().includes(name.value.trim().toLocaleLowerCase()))) {
+        const choice = button(label.name, () => { labels.push({ ...label }); name.value = ''; render(); }, `dl-label dl-label-${label.color}`);
+        choice.disabled = labels.some(selected => selected.name.toLocaleLowerCase() === label.name.toLocaleLowerCase());
+        choice.setAttribute('aria-pressed', String(choice.disabled)); suggestions.append(choice);
+      }
+      hint.hidden = !suggestions.childElementCount;
+    };
     const name = input('', 'text', 'Название метки'); name.maxLength = 60; name.setAttribute('aria-label', 'Название метки');
+    name.oninput = render;
     const color = select(LABEL_COLORS, 'blue'); color.setAttribute('aria-label', 'Цвет метки');
     const add = () => { const normalized = normalizeLabels([...labels, { name: name.value, color: color.value as LabelColor }]); labels.splice(0, labels.length, ...normalized); name.value = ''; render(); };
     name.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); add(); } };
     const controls = el('div', 'dl-label-controls'); controls.append(name, color, button('Добавить метку', add, 'dl-button dl-button-secondary', 'plus'));
-    group.append(chips, controls);
-    const suggestions = el('div', 'dl-label-chips'); const seen = new Set<string>();
-    for (const label of this.data.tasks.flatMap(task => task.labels)) {
-      if (seen.has(label.name)) continue; seen.add(label.name);
-      suggestions.append(button(label.name, () => { if (!labels.some(l => l.name.toLocaleLowerCase() === label.name.toLocaleLowerCase())) labels.push({ ...label }); render(); }, `dl-label dl-label-${label.color}`));
-    }
-    if (suggestions.childElementCount) { group.append(el('span', 'dl-form-hint', 'Использованные ранее'), suggestions); }
+    group.append(chips, controls, hint, suggestions);
     // Commit a typed label on save even if its add button was not pressed.
     group.addEventListener('focusout', event => { if (!group.contains(event.relatedTarget as Node | null) && name.value.trim()) add(); });
     render(); return { element: group, commit: add };

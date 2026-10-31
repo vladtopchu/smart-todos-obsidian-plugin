@@ -20,6 +20,7 @@ export class PlannerStore {
   private queue: Promise<unknown> = Promise.resolve();
   constructor(readonly storage: Storage, readonly codec: Codec, public settings: Settings, private now = () => dateKey(), private clock = () => new Date()) {
     settings.root = normalizeRoot(settings.root);
+    settings.labelPresets = normalizeLabels(settings.labelPresets);
   }
   private serial<T>(action: () => Promise<T>): Promise<T> {
     const next = this.queue.then(action, action); this.queue = next.catch(() => {}); return next;
