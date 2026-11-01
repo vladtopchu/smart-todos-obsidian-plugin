@@ -7,26 +7,28 @@ import { parseDate } from '../src/dates';
 
 function setup(today = '2026-10-30') { const storage = new MemoryStorage(); let date = today; let hour = 12; let minute = 0; const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS }, () => date, () => { const now = parseDate(date); now.setHours(hour, minute, 0, 0); return now; }); return { store, storage, setDate: (value: string) => { date = value; }, setTime: (h: number, m = 0) => { hour = h; minute = m; } }; }
 describe('atomic task lifecycle', () => {
-  it('waits until noon, preserves yesterday before cutoff, and records source, target and execution time once', async () => {
-    const { store, setTime } = setup(); const path = await store.createTask({ title: 'Yesterday', scheduled: '2026-10-29' });
-    setTime(0); expect(await store.rollover()).toBe(0);
-    setTime(11, 59); expect(await store.rollover()).toBe(0); expect((await store.snapshot()).tasks[0]!.scheduled).toBe('2026-10-29');
-    setTime(12); expect(await store.rollover()).toBe(1); expect(await store.rollover()).toBe(0);
-    expect((await store.snapshot()).tasks[0]).toMatchObject({ path, initialScheduled: '2026-10-29', scheduled: '2026-10-30', history: [{ type: 'moved', from: '2026-10-29', to: '2026-10-30', automatic: true, at: expect.any(String), effectiveAt: expect.any(String) }] });
-    const h = (await store.snapshot()).tasks[0]!.history[0]!; expect(new Date(h.effectiveAt!).getHours()).toBe(12); expect(h.at).toBe(h.effectiveAt);
+  it('keeps task dates, history and file bytes unchanged across days and concurrent reads', async () => {
+    const { store, storage, setDate, setTime } = setup();
+    const path = await store.createTask({ title: 'Old task', scheduled: '2026-10-20' });
+    const original = await storage.read(path);
+    for (const date of ['2026-10-30', '2026-11-01', '2027-01-01']) {
+      setDate(date); setTime(12);
+      await Promise.all([store.snapshot(), store.snapshot(), store.snapshot()]);
+      expect(await storage.read(path)).toBe(original);
+      expect((await store.snapshot()).tasks[0]).toMatchObject({ scheduled: '2026-10-20', history: [] });
+    }
   });
-  it('catches up only elapsed noon deadlines without inventing offline history', async () => {
-    const { store, setTime } = setup(); await store.createTask({ title: 'Old', scheduled: '2026-10-20' });
-    setTime(9); expect(await store.rollover()).toBe(1);
-    let task = (await store.snapshot()).tasks[0]!; expect(task.scheduled).toBe('2026-10-29'); expect(task.history).toHaveLength(1);
-    expect(task.history[0]).toMatchObject({ date: '2026-10-30', from: '2026-10-20', to: '2026-10-29' }); expect(new Date(task.history[0]!.at!).getHours()).toBe(9);
-    setTime(12); expect(await store.rollover()).toBe(1); task = (await store.snapshot()).tasks[0]!;
-    expect(task.initialScheduled).toBe('2026-10-20'); expect(task.history).toHaveLength(2); expect(task.scheduled).toBe('2026-10-30');
+  it('records only deliberate date changes and retains them after completing late', async () => {
+    const { store, setDate } = setup();
+    const path = await store.createTask({ title: 'Plan', scheduled: '2026-10-20' });
+    await store.updateTask(path, { scheduled: '2026-10-29' });
+    setDate('2026-11-01'); await store.setTaskStatus(path, 'done');
+    expect((await store.snapshot()).tasks[0]).toMatchObject({ scheduled: '2026-10-29', initialScheduled: '2026-10-20', completed: '2026-11-01', history: [{ type: 'moved', automatic: false }, { type: 'completed' }] });
   });
-  it('preserves colored labels through rollover and completion independently of goals', async () => {
+  it('preserves colored labels through editing and completion independently of goals', async () => {
     const { store } = setup();
     const path = await store.createTask({ title: 'Labeled', scheduled: '2026-10-20', goal: 'goal-1', labels: [{ name: 'Работа', color: 'blue' }, { name: 'Срочно', color: 'red' }] });
-    await store.rollover(); await store.setTaskStatus(path, 'done');
+    await store.setTaskStatus(path, 'done');
     expect((await store.snapshot()).tasks[0]).toMatchObject({ goal: 'goal-1', labels: [{ name: 'Работа', color: 'blue' }, { name: 'Срочно', color: 'red' }] });
     await store.updateTask(path, { labels: [] }); expect((await store.snapshot()).tasks[0]!.labels).toEqual([]);
   });
@@ -48,23 +50,6 @@ describe('atomic task lifecycle', () => {
     for (const path of [note, '_todotracking/tasks/../days/2026-10-30.md', '_todotracking/tasks/other.md']) await expect(store.deleteTask(path)).rejects.toThrow();
     expect(storage.trashed.size).toBe(0); expect(storage.exists(note)).toBe(true);
   });
-  it('rolls over all missed days once without duplicating tasks or touching other horizons', async () => {
-    const { store, storage } = setup();
-    const path = await store.createTask({ title: 'Очень важное', scheduled: '2026-10-20', description: 'Мой текст\n\n[[Ссылка]]' });
-    await store.createTask({ title: 'Будущее', scheduled: '2026-11-01' });
-    await store.createTask({ title: 'Неделя', scheduled: '2026-10-19', scope: 'week' });
-    const done = await store.createTask({ title: 'Завершено', scheduled: '2026-10-15' }); await store.setTaskStatus(done, 'done');
-    const cancelled = await store.createTask({ title: 'Отменено', scheduled: '2026-10-15' }); await store.setTaskStatus(cancelled, 'cancelled');
-    expect(await store.rollover()).toBe(1); expect(await store.rollover()).toBe(0);
-    expect(storage.files.size).toBe(5);
-    const task = (await store.snapshot()).tasks.find(t => t.path === path)!;
-    expect(task).toMatchObject({ scheduled: '2026-10-30', description: 'Мой текст\n\n[[Ссылка]]', history: [{ type: 'moved', from: '2026-10-20', date: '2026-10-30' }] });
-  });
-  it('rechecks current state after concurrent rollover scans', async () => {
-    const { store } = setup(); await store.createTask({ title: 'One', scheduled: '2026-10-01' });
-    const counts = await Promise.all([store.rollover(), store.rollover(), store.rollover()]);
-    expect(counts.reduce((a, b) => a + b, 0)).toBe(1); expect((await store.snapshot()).tasks[0]!.history).toHaveLength(1);
-  });
   it('preserves unfamiliar frontmatter and freeform markdown on completion', async () => {
     const { store, storage } = setup(); const path = await store.createTask({ title: 'A', scheduled: '2026-10-30', description: '## Подзадачи\n- [ ] Мой чекбокс\n\n`code` и [[линк]]' });
     const raw = await storage.read(path); storage.files.set(path, raw.replace('"history": []', '"history": [], "custom": {"mine": true}'));
@@ -84,13 +69,11 @@ describe('atomic task lifecycle', () => {
     expect(storage.files.size).toBe(1); expect((await store.snapshot()).tasks[0]).toMatchObject({ status: 'open', scheduled: '2026-10-31', history: [{ type: 'completed', date: '2026-10-30', from: '2026-10-30' }] });
     setDate('2026-10-31'); await store.setTaskStatus(path, 'done'); expect((await store.snapshot()).tasks[0]!.scheduled).toBe('2026-11-01');
   });
-  it('does not move weekday routines into a weekend', async () => {
-    const { store, setDate } = setup('2026-10-31'); await store.createTask({ title: 'Work', scheduled: '2026-10-30', recurrence: 'weekdays' });
-    expect(await store.rollover()).toBe(0); setDate('2026-11-02'); expect(await store.rollover()).toBe(1);
-  });
-  it('keeps overdue tasks unchanged when rollover is disabled', async () => {
-    const { store } = setup(); await store.createTask({ title: 'Old', scheduled: '2026-10-01' }); store.settings.autoRollover = false;
-    expect(await store.rollover()).toBe(0); expect((await store.snapshot()).tasks[0]!.scheduled).toBe('2026-10-01');
+  it('advances an overdue weekday repeat only on completion and keeps its actual occurrence', async () => {
+    const { store } = setup('2026-11-01');
+    const path = await store.createTask({ title: 'Weekday task', scheduled: '2026-10-30', recurrence: 'weekdays' });
+    await store.setTaskStatus(path, 'done');
+    expect((await store.snapshot()).tasks[0]).toMatchObject({ scheduled: '2026-11-02', status: 'open', history: [{ type: 'completed', date: '2026-11-01', from: '2026-10-30' }] });
   });
   it('reports malformed files without hiding valid tasks', async () => {
     const { store, storage } = setup(); await store.createTask({ title: 'Valid', scheduled: '2026-10-30' });

@@ -6,7 +6,7 @@ import { DEFAULT_SETTINGS } from '../src/types';
 import { codec, MemoryStorage } from './helpers';
 import { dateKey, shiftDay } from '../src/dates';
 
-afterEach(() => { document.body.replaceChildren(); });
+afterEach(() => { vi.useRealTimers(); document.body.replaceChildren(); });
 function setup() {
   const storage = new MemoryStorage(); const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS });
   const root = document.createElement('div'); document.body.append(root);
@@ -15,6 +15,33 @@ function setup() {
   return { storage, store, root, messages, host, dashboard: new Dashboard(root, store, host) };
 }
 describe('planner UI', () => {
+  it('follows today across midnight without writing task files and leaves a chosen historical day alone', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 31, 23, 59));
+    const { store, storage, dashboard, root } = setup();
+    const path = await store.createTask({ title: 'Unfinished', scheduled: '2026-10-31' });
+    const original = await storage.read(path);
+    await dashboard.refresh();
+    const process = vi.spyOn(storage, 'process');
+    vi.setSystemTime(new Date(2026, 10, 1, 0, 1)); await dashboard.refresh();
+    expect(root.querySelector('h1')?.textContent).toContain('1 ноября');
+    expect(root.querySelector('.dl-overdue-banner')?.textContent).toContain('1');
+    expect(root.textContent).toContain('В плане с 31 октября');
+    dashboard.navigate('day', '2026-10-30');
+    vi.setSystemTime(new Date(2026, 10, 2)); await dashboard.refresh();
+    expect(root.querySelector('h1')?.textContent).toContain('30 октября');
+    expect(process).not.toHaveBeenCalled(); expect(await storage.read(path)).toBe(original);
+  });
+  it('shows a late completion today, removes it from carry-over, and counts it once in statistics', async () => {
+    const { store, dashboard, root } = setup();
+    const path = await store.createTask({ title: 'Finished late', scheduled: shiftDay(dateKey(), -40) });
+    await store.setTaskStatus(path, 'done'); await dashboard.refresh();
+    expect(root.querySelector('.dl-task-title')?.textContent).toBe('Finished late');
+    expect(root.querySelector('.dl-overdue-banner')).toBeNull();
+    dashboard.navigate('stats');
+    const stat = [...root.querySelectorAll('.dl-stat')].find(node => node.textContent?.includes('Выполнено за период'));
+    expect(stat?.querySelector('strong')?.textContent).toBe('1');
+    expect(root.textContent).not.toContain('Переносов');
+  });
   it('browses whole weeks across year boundaries without switching into days', async () => {
     const { dashboard, root } = setup(); await dashboard.refresh(); dashboard.navigate('week', '2026-12-31');
     expect(root.querySelector('.dl-week-strip')).toBeNull(); expect(root.querySelectorAll('.dl-week-choice')).toHaveLength(3);
@@ -131,8 +158,8 @@ describe('planner UI', () => {
     const { store, dashboard, root } = setup(); await store.createTask({ title: '<img src=x onerror=alert(1)>', scheduled: dateKey() }); await dashboard.refresh();
     expect(root.querySelector('.dl-task-title')!.textContent).toContain('<img'); expect(root.querySelector('img')).toBeNull();
   });
-  it('keeps incomplete tasks from a past day visible after turning rollover off', async () => {
-    const { store, dashboard, root } = setup(); store.settings.autoRollover = false; await store.createTask({ title: 'Yesterday', scheduled: shiftDay(dateKey(), -1) }); await dashboard.refresh();
+  it('keeps incomplete tasks from a past day visible without changing their dates', async () => {
+    const { store, dashboard, root } = setup(); await store.createTask({ title: 'Yesterday', scheduled: shiftDay(dateKey(), -1) }); await dashboard.refresh();
     expect(root.querySelector('.dl-overdue-banner')?.textContent).toContain('1');
   });
   it('shows week plans and contained daily tasks, while excluding month/year plans', async () => {

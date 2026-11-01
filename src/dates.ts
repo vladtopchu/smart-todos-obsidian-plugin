@@ -3,11 +3,6 @@ import type { Recurrence, Scope } from './types';
 export function dateKey(date = new Date()): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
-export function nextNoon(now: Date): Date {
-  const next = new Date(now); next.setHours(12, 0, 0, 0);
-  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
-  return next;
-}
 export function parseDate(value: string): Date {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`Некорректная дата: ${value}`);
   const [y, m, d] = value.split('-').map(Number) as [number, number, number];

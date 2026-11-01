@@ -43,12 +43,11 @@ export interface Habit {
 }
 export interface Settings {
   root: string;
-  autoRollover: boolean;
   showCompleted: boolean;
   tasksOnly: boolean;
   labelPresets: TaskLabel[];
 }
-export const DEFAULT_SETTINGS: Settings = { root: '_todotracking', autoRollover: true, showCompleted: true, tasksOnly: false, labelPresets: [] };
+export const DEFAULT_SETTINGS: Settings = { root: '_todotracking', showCompleted: true, tasksOnly: false, labelPresets: [] };
 export interface Snapshot { tasks: Task[]; goals: Goal[]; habits: Habit[]; warnings: string[] }
 export interface Storage {
   list(): string[] | Promise<string[]>;

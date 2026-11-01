@@ -1,4 +1,5 @@
 import { dateKey, displayDate, habitDue, habitStreak, inPeriod, parseDate, periodKey, shiftDay, stepPeriod, weekDays, weekStart } from '../dates';
+import { carriedTask, tasksForPeriod } from '../task-view';
 import { PlannerStore } from '../store';
 import type { Goal, Habit, LabelColor, Priority, Recurrence, Scope, Screen, Snapshot, Task, TaskLabel } from '../types';
 import { button, el, field, icon, input, meter, select, textarea } from './dom';
@@ -22,6 +23,7 @@ const CAP = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export class Dashboard {
   private screen: Screen = 'day';
   private selected = dateKey();
+  private lastToday = dateKey();
   private calendarMonth = this.selected.slice(0, 7) + '-01';
   private data: Snapshot = { tasks: [], goals: [], habits: [], warnings: [] };
   private filter: 'all' | 'open' | 'done' = 'all';
@@ -40,6 +42,9 @@ export class Dashboard {
     const snapshot = await this.store.snapshot();
     if (this.disposed || generation !== this.generation) return;
     this.data = snapshot;
+    const today = dateKey();
+    if (this.screen === 'day' && this.selected === this.lastToday) { this.selected = today; this.calendarMonth = today.slice(0, 7) + '-01'; }
+    this.lastToday = today;
     const presets = normalizeLabels([...this.store.settings.labelPresets, ...snapshot.tasks.flatMap(task => task.labels)]);
     const presetsChanged = JSON.stringify(presets) !== JSON.stringify(this.store.settings.labelPresets);
     this.store.settings.labelPresets = presets;
@@ -86,9 +91,9 @@ export class Dashboard {
     controls.append(button('Предыдущий месяц', () => { this.calendarMonth = stepPeriod(this.calendarMonth, 'month', -1); this.render(); }, 'dl-icon-button', 'left'), button('Следующий месяц', () => { this.calendarMonth = stepPeriod(this.calendarMonth, 'month', 1); this.render(); }, 'dl-icon-button', 'right'));
     header.append(el('strong', '', CAP(displayDate(this.calendarMonth, { month: 'long', year: 'numeric' }).replace(' г.', ''))), controls); box.append(header);
     const grid = el('div', 'dl-calendar-grid'); WEEKDAYS.forEach(d => grid.append(el('span', 'dl-calendar-weekday', d)));
-    const first = weekDays(this.calendarMonth)[0]!; const busy = new Set(this.data.tasks.filter(t => t.status !== 'cancelled').map(t => t.scheduled));
+    const first = weekDays(this.calendarMonth)[0]!;
     for (let i = 0; i < 42; i++) {
-      const date = shiftDay(first, i); const node = button(String(parseDate(date).getDate()), () => this.navigate('day', date), `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? 'is-outside' : ''} ${date === this.selected ? 'is-selected' : ''} ${date === dateKey() ? 'is-today' : ''} ${busy.has(date) ? 'has-tasks' : ''}`);
+      const date = shiftDay(first, i); const node = button(String(parseDate(date).getDate()), () => this.navigate('day', date), `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? 'is-outside' : ''} ${date === this.selected ? 'is-selected' : ''} ${date === dateKey() ? 'is-today' : ''} ${tasksForPeriod(this.data.tasks, 'day', date, dateKey()).length ? 'has-tasks' : ''}`);
       node.setAttribute('aria-label', displayDate(date, { day: 'numeric', month: 'long', year: 'numeric' })); node.setAttribute('aria-pressed', String(date === this.selected)); if (date === dateKey()) node.setAttribute('aria-current', 'date'); grid.append(node);
     }
     box.append(grid); return box;
@@ -111,8 +116,7 @@ export class Dashboard {
     const header = el('header', 'dl-page-header'); const text = el('div'); if (eyebrow) text.append(el('div', 'dl-eyebrow', eyebrow)); text.append(el('h1', '', title)); if (subtitle) text.append(el('p', 'dl-subtitle', subtitle)); const buttons = el('div', 'dl-header-actions'); buttons.append(...actions); header.append(text, buttons); return header;
   }
   private periodTasks(scope: Scope): Task[] {
-    const ranks: Record<Scope, number> = { day: 0, week: 1, month: 2, year: 3 };
-    return this.data.tasks.filter(t => t.status !== 'cancelled' && ranks[t.scope] <= ranks[scope] && (inPeriod(t.scheduled, scope, this.selected) || (scope === 'day' && this.selected === dateKey() && t.status === 'open' && t.scheduled < this.selected)));
+    return tasksForPeriod(this.data.tasks, scope, this.selected, dateKey());
   }
   private plannerPage(scope: Scope): HTMLElement {
     const page = el('div', 'dl-planner');
@@ -126,7 +130,7 @@ export class Dashboard {
       const days = el('div', 'dl-week-strip');
       for (const [i, date] of weekDays(this.selected).entries()) {
         const item = button(WEEKDAYS[i]!, () => this.navigate('day', date), `dl-week-day ${date === this.selected ? 'is-selected' : ''} ${date === dateKey() ? 'is-today' : ''}`);
-        item.append(el('strong', '', String(parseDate(date).getDate())), el('i', this.data.tasks.some(t => t.scheduled === date && t.status === 'open') ? 'has-tasks' : ''));
+        item.append(el('strong', '', String(parseDate(date).getDate())), el('i', tasksForPeriod(this.data.tasks, 'day', date, dateKey()).some(t => t.status === 'open') ? 'has-tasks' : ''));
         item.setAttribute('aria-label', displayDate(date, { weekday: 'long', day: 'numeric', month: 'long' })); item.setAttribute('aria-pressed', String(date === this.selected)); days.append(item);
       }
       timeline.append(days);
@@ -149,14 +153,20 @@ export class Dashboard {
     taskHeader.append(heading, search); taskColumn.append(taskHeader);
     const tabs = el('div', 'dl-tabs'); for (const [key, label] of [['all', 'Все'], ['open', 'В работе'], ['done', 'Готово']] as const) { const tab = button(label, () => { this.filter = key; this.render(); }, `dl-tab ${this.filter === key ? 'is-active' : ''}`); tab.setAttribute('aria-pressed', String(this.filter === key)); tabs.append(tab); } taskColumn.append(tabs, this.quickAdd());
     const visible = tasks.filter(t => (this.filter === 'all' ? this.store.settings.showCompleted || t.status === 'open' : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map(label => label.name).join(' ')}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
-    const overdue = scope === 'day' ? this.data.tasks.filter(t => t.status === 'open' && t.scope === 'day' && t.scheduled < this.selected && this.selected <= dateKey()) : [];
-    if (overdue.length && !this.query && this.filter !== 'done') {
-      const banner = el('div', 'dl-overdue-banner'); banner.append(el('strong', '', `Незавершённые с прошлых дней · ${overdue.length}`), el('p', '', this.store.settings.autoRollover ? 'Задачи доступны ниже. Автоперенос на следующий день — в 12:00 по времени устройства.' : 'Автоперенос выключен. Дату можно изменить в форме задачи.')); taskColumn.append(banner);
-    }
     if (!visible.length) taskColumn.append(this.empty(this.query ? 'Задачи не найдены' : 'Нет задач', this.query ? 'Измените поисковый запрос.' : 'Добавьте задачу в поле выше.'));
     else {
       const sorted = [...visible].sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done') || ({ high: 0, normal: 1, low: 2 }[a.priority] - { high: 0, normal: 1, low: 2 }[b.priority]) || a.scheduled.localeCompare(b.scheduled));
-      const list = el('div', 'dl-task-list'); list.setAttribute('aria-label', 'Задачи'); sorted.forEach(task => list.append(this.taskRow(task, scope !== 'day'))); taskColumn.append(list);
+      const carried = sorted.filter(task => carriedTask(task, scope, this.selected, dateKey()));
+      const planned = sorted.filter(task => !carriedTask(task, scope, this.selected, dateKey()));
+      const appendList = (items: Task[]) => {
+        if (!items.length) return;
+        const list = el('div', 'dl-task-list'); list.setAttribute('aria-label', 'Задачи'); items.forEach(task => list.append(this.taskRow(task, scope !== 'day'))); taskColumn.append(list);
+      };
+      appendList(planned);
+      if (carried.length) {
+        const banner = el('div', 'dl-overdue-banner'); banner.append(el('strong', '', `${scope === 'day' ? 'Незавершённые с прошлых дней' : 'Незавершённые из прошлых периодов'} · ${carried.length}`)); taskColumn.append(banner);
+        appendList(carried);
+      }
     }
     const rail = el('aside', 'dl-context-rail'); rail.append(scope === 'day' ? this.dailyHabits(habits) : this.habitAnalysis(scope));
     if (scope === 'day') rail.append(this.weekFocus()); else rail.append(this.goalPreview());
@@ -184,7 +194,8 @@ export class Dashboard {
     if (task.recurrence !== 'none') { const repeat = el('span', 'dl-task-repeat'); repeat.append(icon('repeat'), el('span', '', REPEATS[task.recurrence])); metadata.append(repeat); }
     if (showDate || task.scheduled !== this.selected) metadata.append(el('span', '', `${displayDate(task.scheduled)}${task.scope !== 'day' ? ` · ${SCOPES[task.scope]}` : ''}`));
     if (task.due) metadata.append(el('span', task.due < dateKey() && task.status === 'open' ? 'dl-late' : '', `До ${displayDate(task.due)}`));
-    const moved = task.history.filter(h => h.type === 'moved'); if (moved.length) metadata.append(el('span', 'dl-moved', `↪ с ${displayDate(moved[0]!.from ?? task.created)} · ${moved.length} перенос${moved.length === 1 ? '' : 'ов'}`));
+    if (task.status === 'open' && task.scheduled < dateKey()) metadata.append(el('span', 'dl-moved', `В плане с ${displayDate(task.scheduled)}`));
+    if (task.status === 'done' && task.completed) metadata.append(el('span', '', `Выполнено ${displayDate(task.completed)}`));
     const checkTarget = el('label', 'dl-checkbox-target'); const checkMark = icon('check'); checkMark.classList.add('dl-checkbox-mark'); checkTarget.append(check, checkMark);
     if (metadata.childElementCount) body.append(metadata); row.append(checkTarget, body);
     const menu = button('Действия с задачей', () => this.taskActions(task), 'dl-icon-button dl-row-menu', 'dots'); row.append(menu); return row;
@@ -282,11 +293,11 @@ export class Dashboard {
     const date = controls.querySelector('input')!; date.setAttribute('aria-label', 'Дата статистики'); date.onchange = () => { if (date.value) { this.selected = date.value; this.render(); } };
     page.append(controls, el('p', 'dl-subtitle', `Период: ${periodKey(this.statsScope, this.selected)}`));
     const inRange = (date: string) => !!date && inPeriod(date, this.statsScope, this.selected);
-    const planned = this.data.tasks.filter(t => inRange(t.scheduled) && t.status !== 'cancelled');
+    const active = tasksForPeriod(this.data.tasks, this.statsScope, this.selected, dateKey()).filter(t => t.status === 'open');
     const completed = this.data.tasks.reduce((n, t) => n + (t.recurrence === 'none' ? Number(t.status === 'done' && inRange(t.completed)) : t.history.filter(h => h.type === 'completed' && inRange(h.date)).length), 0);
-    const moved = this.data.tasks.reduce((n, t) => n + t.history.filter(h => h.type === 'moved' && inRange(h.date)).length, 0);
+    const carried = active.filter(t => carriedTask(t, this.statsScope, this.selected, dateKey())).length;
     const stats = el('div', 'dl-stats');
-    for (const [label, value] of [['В работе', planned.filter(t => t.status === 'open').length], ['Выполнено за период', completed], ['Переносов', moved]] as const) {
+    for (const [label, value] of [['В работе', active.length], ['Выполнено за период', completed], ['С прошлых периодов', carried]] as const) {
       const stat = el('div', 'dl-stat'); stat.append(el('span', 'dl-stat-label', label), el('strong', 'dl-stat-value', String(value))); stats.append(stat);
     }
     page.append(stats);

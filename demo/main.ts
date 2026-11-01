@@ -48,7 +48,6 @@ if (!storage.list().length) {
     if (title === 'Выпить стакан воды') await store.toggleHabit(habit.path, today);
   }
 }
-await store.rollover();
 function notify(message: string): void { const toast = el('div', 'demo-toast', message); toast.setAttribute('role', 'status'); document.body.append(toast); window.setTimeout(() => toast.remove(), 5000); }
 function dialog(title: string, render: (body: HTMLElement, close: () => void) => void): void {
   const previous = document.activeElement as HTMLElement | null;
@@ -63,8 +62,7 @@ const host: DashboardHost = {
   settings: () => dialog('Настройки Smart Todo · демо', (body, close) => {
     body.append(el('p', 'dl-subtitle', 'Это браузерная песочница. Данные сохраняются только в localStorage этого браузера. В Obsidian используются файлы вашего хранилища.'));
     const root = input(store.settings.root); body.append(field('Папка планировщика', root));
-    const rollover = input('', 'checkbox'); rollover.checked = store.settings.autoRollover; body.append(field('Переносить незавершённые задачи', rollover));
-    body.append(button('Сохранить', () => { void (async () => { try { await store.moveRoot(root.value); store.settings.autoRollover = rollover.checked; localStorage.setItem('smart-todo-demo-settings', JSON.stringify(store.settings)); await store.rollover(); close(); await dashboard.refresh(); } catch (e) { notify(String(e)); } })(); }, 'dl-button dl-button-primary'));
+    body.append(button('Сохранить', () => { void (async () => { try { await store.moveRoot(root.value); localStorage.setItem('smart-todo-demo-settings', JSON.stringify(store.settings)); close(); await dashboard.refresh(); } catch (e) { notify(String(e)); } })(); }, 'dl-button dl-button-primary'));
     body.append(button('Скачать все Markdown-файлы', () => { void (async () => { const files: Record<string, string> = {}; for (const path of storage.list()) files[path] = await storage.read(path); const url = URL.createObjectURL(new Blob([JSON.stringify(files, null, 2)], { type: 'application/json' })); const link = el('a'); link.href = url; link.download = 'smart-todo-demo-files.json'; link.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); })(); }, 'dl-button dl-button-secondary'));
   }),
 };

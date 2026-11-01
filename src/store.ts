@@ -1,4 +1,4 @@
-import { dateKey, habitDue, nextOccurrence, parseDate, periodKey, shiftDay, validDate } from './dates';
+import { dateKey, habitDue, nextOccurrence, periodKey, validDate } from './dates';
 import type { Codec, Goal, Habit, Settings, Snapshot, Storage, Task, Scope } from './types';
 import { newId } from './ids';
 import { normalizeLabels } from './labels';
@@ -145,28 +145,6 @@ export class PlannerStore {
       if (!matchesEntityType(doc.data.type, type)) throw new Error('Тип файла не соответствует выбранному действию');
       await this.storage.trash(path);
     });
-  }
-  async rollover(): Promise<number> {
-    if (!this.settings.autoRollover) return 0;
-    const snapshot = await this.snapshot(); const today = this.now(); const instant = this.clock();
-    // Before noon, only rollovers whose noon cutoff has already passed are eligible.
-    const cutoffDay = instant.getHours() < 12 ? shiftDay(today, -1) : today;
-    let count = 0;
-    await this.serial(async () => {
-      for (const task of snapshot.tasks) {
-        let target = cutoffDay;
-        if (task.recurrence === 'weekdays') while (!habitDue([1, 2, 3, 4, 5], target)) target = shiftDay(target, -1);
-        if (task.status !== 'open' || task.scope !== 'day' || task.scheduled >= target) continue;
-        if (!(await this.storage.exists(task.path))) continue;
-        await this.mutateTask(task.path, current => {
-          if (current.status !== 'open' || current.scope !== 'day' || current.scheduled >= target || current.recurrence !== task.recurrence) return {};
-          const effective = parseDate(target); effective.setHours(12, 0, 0, 0);
-          count++;
-          return { scheduled: target, history: [...current.history, { type: 'moved', date: today, from: current.scheduled, to: target, at: instant.toISOString(), effectiveAt: effective.toISOString(), automatic: true }] };
-        });
-      }
-    });
-    return count;
   }
   saveGoal(input: Pick<Goal, 'title' | 'target' | 'description'> & Partial<Pick<Goal, 'path' | 'status'>>): Promise<void> {
     if (!singleLine(input.title) || (input.target && !validDate(input.target))) return Promise.reject(new Error('Проверьте название и дату цели'));

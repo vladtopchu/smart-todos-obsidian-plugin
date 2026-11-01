@@ -1,5 +1,5 @@
 import { App, ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, WorkspaceLeaf, parseYaml, stringifyYaml } from 'obsidian';
-import { dateKey, nextNoon } from './dates';
+import { dateKey } from './dates';
 import { ObsidianStorage } from './obsidian-storage';
 import { PlannerStore, normalizeRoot } from './store';
 import { DEFAULT_SETTINGS, type Settings } from './types';
@@ -31,8 +31,6 @@ export default class SmartTodoPlugin extends Plugin {
   declare settings: Settings;
   store!: PlannerStore;
   private refreshTimer?: number;
-  private noonTimer?: number;
-  private checking = false;
   private lastDay = '';
   private unloaded = false;
   private savedPanels?: { left: boolean; right: boolean };
@@ -51,7 +49,6 @@ export default class SmartTodoPlugin extends Plugin {
   async onload(): Promise<void> {
     const saved = await this.loadData();
     this.settings = { ...DEFAULT_SETTINGS, ...(saved && typeof saved === 'object' ? saved : {}) };
-    this.settings.autoRollover = typeof this.settings.autoRollover === 'boolean' ? this.settings.autoRollover : true;
     this.settings.showCompleted = typeof this.settings.showCompleted === 'boolean' ? this.settings.showCompleted : true;
     this.settings.tasksOnly = this.settings.tasksOnly === true;
     try { this.settings.root = normalizeRoot(this.settings.root); }
@@ -63,9 +60,6 @@ export default class SmartTodoPlugin extends Plugin {
     this.addCommand({ id: 'open-planner', name: 'Открыть планировщик', callback: () => { void this.openPlanner(); } });
     this.addCommand({ id: 'add-task', name: 'Добавить задачу', callback: () => { void this.openPlanner(true); } });
     this.addCommand({ id: 'open-today', name: 'Открыть заметку на сегодня', callback: () => { void this.openNote(); } });
-    this.addCommand({ id: 'rollover', name: 'Проверить автоперенос (12:00)', callback: () => {
-      void this.store.rollover().then(n => { new Notice(this.settings.autoRollover ? `Smart Todo: перенесено задач — ${n}` : 'Включите автоперенос в настройках Smart Todo.'); this.scheduleRefresh(); }).catch(error => this.report(error));
-    } });
     this.addCommand({ id: 'collect-checkboxes', name: 'Собрать незавершённые задачи из открытой заметки', callback: () => { void this.collectFromActiveNote(); } });
     this.addSettingTab(new PlannerSettings(this.app, this));
     const changed = (file: { path: string }) => { if (file.path.startsWith(`${this.settings.root}/`)) this.scheduleRefresh(); };
@@ -73,28 +67,16 @@ export default class SmartTodoPlugin extends Plugin {
     this.registerEvent(this.app.vault.on('modify', changed));
     this.registerEvent(this.app.vault.on('delete', changed));
     this.registerEvent(this.app.vault.on('rename', (file, oldPath) => { if (file.path.startsWith(`${this.settings.root}/`) || oldPath.startsWith(`${this.settings.root}/`)) this.scheduleRefresh(); }));
-    this.registerDomEvent(document, 'visibilitychange', () => { if (!document.hidden) { this.scheduleNoon(); void this.checkDay(); } });
-    this.registerDomEvent(window, 'focus', () => { this.scheduleNoon(); void this.checkDay(); });
-    this.registerInterval(window.setInterval(() => { void this.checkDay(); }, 60_000));
-    this.app.workspace.onLayoutReady(() => { if (!this.unloaded) { this.scheduleNoon(); void this.checkDay(); } });
+    this.registerDomEvent(document, 'visibilitychange', () => { if (!document.hidden) { this.checkDay(); } });
+    this.registerDomEvent(window, 'focus', () => { this.checkDay(); });
+    this.registerInterval(window.setInterval(() => { this.checkDay(); }, 60_000));
+    this.app.workspace.onLayoutReady(() => { if (!this.unloaded) { this.checkDay(); } });
   }
-  onunload(): void { this.unloaded = true; this.setTasksOnly(false); if (this.refreshTimer !== undefined) window.clearTimeout(this.refreshTimer); if (this.noonTimer !== undefined) window.clearTimeout(this.noonTimer); }
-  private scheduleNoon(): void {
-    if (this.unloaded) return;
-    if (this.noonTimer !== undefined) window.clearTimeout(this.noonTimer);
-    const now = new Date();
-    this.noonTimer = window.setTimeout(() => { this.noonTimer = undefined; void this.checkDay(); this.scheduleNoon(); }, nextNoon(now).getTime() - now.getTime());
-  }
+  onunload(): void { this.unloaded = true; this.setTasksOnly(false); if (this.refreshTimer !== undefined) window.clearTimeout(this.refreshTimer); }
   private report(error: unknown): void { console.error('Smart Todo', error); new Notice(`Smart Todo: ${error instanceof Error ? error.message : String(error)}`, 8000); }
-  private async checkDay(): Promise<void> {
-    if (this.checking || this.unloaded) return;
-    this.checking = true;
-    try {
-      // Also catch overdue tasks received from Sync while Obsidian was running.
-      const n = await this.store.rollover(); const changed = this.lastDay !== dateKey(); this.lastDay = dateKey();
-      if (n || changed) this.scheduleRefresh();
-    } catch (error) { this.report(error); }
-    finally { this.checking = false; }
+  private checkDay(): void {
+    const today = dateKey();
+    if (!this.unloaded && this.lastDay !== today) { this.lastDay = today; this.scheduleRefresh(); }
   }
   scheduleRefresh(): void {
     if (this.refreshTimer !== undefined) window.clearTimeout(this.refreshTimer);
@@ -171,7 +153,6 @@ class PlannerSettings extends PluginSettingTab {
       catch (error) { new Notice(error instanceof Error ? error.message : String(error), 9000); }
       finally { btn.setDisabled(false); }
     }));
-    new Setting(container).setName('Автоперенос в 12:00').setDesc('В полдень по времени устройства незавершённые задачи прошедших дней получают новую дату. Если Obsidian был закрыт, пропущенная проверка выполняется при открытии. До полудня вчерашние задачи не переносятся. Исходная дата и время переноса сохраняются в истории. Планы недели, месяца и года не переносятся.').addToggle(toggle => toggle.setValue(this.plugin.settings.autoRollover).onChange(async value => { this.plugin.settings.autoRollover = value; await this.plugin.saveSettings(); if (value) { await this.plugin.store.rollover(); this.plugin.scheduleRefresh(); } }));
     new Setting(container).setName('Показывать выполненные').setDesc('В разделе «Все». Вкладка «Готово» доступна всегда.').addToggle(toggle => toggle.setValue(this.plugin.settings.showCompleted).onChange(async value => { this.plugin.settings.showCompleted = value; await this.plugin.saveSettings(); }));
     container.append(el('p', 'dl-settings-help', 'Корзина .trash находится в корне хранилища. Удалённые задачи, цели и привычки перемещаются туда. Smart Todo не очищает корзину автоматически; файлы остаются до ручного удаления. Для восстановления верните файл в исходную папку tasks, goals или habits.'));
     const help = el('div', 'dl-settings-help'); help.append(el('h3', '', 'Если хотите оставить Calendar'), el('p', '', 'В Daily notes укажите папку ниже и формат YYYY-MM-DD. В настройках Calendar задайте папку недель и формат GGGG-[W]WW. Тогда оба календаря будут открывать одни и те же заметки.'));

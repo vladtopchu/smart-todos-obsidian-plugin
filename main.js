@@ -56,9 +56,9 @@ var init_manifest = __esm({
     manifest_default = {
       id: "smart-todos",
       name: "Smart Todo",
-      version: "1.0.4",
+      version: "1.0.5",
       minAppVersion: "1.8.0",
-      description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u0437\u0430\u0434\u0430\u0447\u0438 \u0441 \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441\u043E\u043C, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
+      description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
       author: "Personal build for Vlad",
       isDesktopOnly: false
     };
@@ -161,12 +161,6 @@ var import_obsidian2 = require("obsidian");
 // src/dates.ts
 function dateKey(date = /* @__PURE__ */ new Date()) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-}
-function nextNoon(now) {
-  const next = new Date(now);
-  next.setHours(12, 0, 0, 0);
-  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
-  return next;
 }
 function parseDate(value) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error(`\u041D\u0435\u043A\u043E\u0440\u0440\u0435\u043A\u0442\u043D\u0430\u044F \u0434\u0430\u0442\u0430: ${value}`);
@@ -6856,30 +6850,6 @@ ${doc.body}`;
       await this.storage.trash(path);
     });
   }
-  async rollover() {
-    if (!this.settings.autoRollover) return 0;
-    const snapshot = await this.snapshot();
-    const today = this.now();
-    const instant = this.clock();
-    const cutoffDay = instant.getHours() < 12 ? shiftDay(today, -1) : today;
-    let count = 0;
-    await this.serial(async () => {
-      for (const task of snapshot.tasks) {
-        let target = cutoffDay;
-        if (task.recurrence === "weekdays") while (!habitDue([1, 2, 3, 4, 5], target)) target = shiftDay(target, -1);
-        if (task.status !== "open" || task.scope !== "day" || task.scheduled >= target) continue;
-        if (!await this.storage.exists(task.path)) continue;
-        await this.mutateTask(task.path, (current) => {
-          if (current.status !== "open" || current.scope !== "day" || current.scheduled >= target || current.recurrence !== task.recurrence) return {};
-          const effective = parseDate(target);
-          effective.setHours(12, 0, 0, 0);
-          count++;
-          return { scheduled: target, history: [...current.history, { type: "moved", date: today, from: current.scheduled, to: target, at: instant.toISOString(), effectiveAt: effective.toISOString(), automatic: true }] };
-        });
-      }
-    });
-    return count;
-  }
   saveGoal(input2) {
     if (!singleLine(input2.title) || input2.target && !validDate(input2.target)) return Promise.reject(new Error("\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438 \u0434\u0430\u0442\u0443 \u0446\u0435\u043B\u0438"));
     return this.serial(async () => {
@@ -6989,7 +6959,16 @@ period: "${periodKey(scope, date)}"
 };
 
 // src/types.ts
-var DEFAULT_SETTINGS = { root: "_todotracking", autoRollover: true, showCompleted: true, tasksOnly: false, labelPresets: [] };
+var DEFAULT_SETTINGS = { root: "_todotracking", showCompleted: true, tasksOnly: false, labelPresets: [] };
+
+// src/task-view.ts
+var ranks = { day: 0, week: 1, month: 2, year: 3 };
+function carriedTask(task, scope, selected, today) {
+  return task.status === "open" && ranks[task.scope] <= ranks[scope] && inPeriod(today, scope, selected) && task.scheduled < periodBounds(scope, selected).start;
+}
+function tasksForPeriod(tasks, scope, selected, today) {
+  return tasks.filter((task) => task.status !== "cancelled" && ranks[task.scope] <= ranks[scope] && (inPeriod(task.scheduled, scope, selected) || carriedTask(task, scope, selected, today) || task.status === "done" && !!task.completed && inPeriod(task.completed, scope, selected)));
+}
 
 // src/ui/dom.ts
 function el(tag, className = "", text) {
@@ -7124,6 +7103,7 @@ var Dashboard = class {
     this.host = host;
     __publicField(this, "screen", "day");
     __publicField(this, "selected", dateKey());
+    __publicField(this, "lastToday", dateKey());
     __publicField(this, "calendarMonth", this.selected.slice(0, 7) + "-01");
     __publicField(this, "data", { tasks: [], goals: [], habits: [], warnings: [] });
     __publicField(this, "filter", "all");
@@ -7149,6 +7129,12 @@ var Dashboard = class {
     const snapshot = await this.store.snapshot();
     if (this.disposed || generation !== this.generation) return;
     this.data = snapshot;
+    const today = dateKey();
+    if (this.screen === "day" && this.selected === this.lastToday) {
+      this.selected = today;
+      this.calendarMonth = today.slice(0, 7) + "-01";
+    }
+    this.lastToday = today;
     const presets = normalizeLabels([...this.store.settings.labelPresets, ...snapshot.tasks.flatMap((task) => task.labels)]);
     const presetsChanged = JSON.stringify(presets) !== JSON.stringify(this.store.settings.labelPresets);
     this.store.settings.labelPresets = presets;
@@ -7235,10 +7221,9 @@ var Dashboard = class {
     const grid = el("div", "dl-calendar-grid");
     WEEKDAYS.forEach((d) => grid.append(el("span", "dl-calendar-weekday", d)));
     const first = weekDays(this.calendarMonth)[0];
-    const busy = new Set(this.data.tasks.filter((t) => t.status !== "cancelled").map((t) => t.scheduled));
     for (let i = 0; i < 42; i++) {
       const date = shiftDay(first, i);
-      const node = button(String(parseDate(date).getDate()), () => this.navigate("day", date), `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? "is-outside" : ""} ${date === this.selected ? "is-selected" : ""} ${date === dateKey() ? "is-today" : ""} ${busy.has(date) ? "has-tasks" : ""}`);
+      const node = button(String(parseDate(date).getDate()), () => this.navigate("day", date), `dl-calendar-day ${date.slice(0, 7) !== this.calendarMonth.slice(0, 7) ? "is-outside" : ""} ${date === this.selected ? "is-selected" : ""} ${date === dateKey() ? "is-today" : ""} ${tasksForPeriod(this.data.tasks, "day", date, dateKey()).length ? "has-tasks" : ""}`);
       node.setAttribute("aria-label", displayDate(date, { day: "numeric", month: "long", year: "numeric" }));
       node.setAttribute("aria-pressed", String(date === this.selected));
       if (date === dateKey()) node.setAttribute("aria-current", "date");
@@ -7285,8 +7270,7 @@ var Dashboard = class {
     return header;
   }
   periodTasks(scope) {
-    const ranks = { day: 0, week: 1, month: 2, year: 3 };
-    return this.data.tasks.filter((t) => t.status !== "cancelled" && ranks[t.scope] <= ranks[scope] && (inPeriod(t.scheduled, scope, this.selected) || scope === "day" && this.selected === dateKey() && t.status === "open" && t.scheduled < this.selected));
+    return tasksForPeriod(this.data.tasks, scope, this.selected, dateKey());
   }
   plannerPage(scope) {
     const page = el("div", "dl-planner");
@@ -7302,7 +7286,7 @@ var Dashboard = class {
       const days = el("div", "dl-week-strip");
       for (const [i, date] of weekDays(this.selected).entries()) {
         const item = button(WEEKDAYS[i], () => this.navigate("day", date), `dl-week-day ${date === this.selected ? "is-selected" : ""} ${date === dateKey() ? "is-today" : ""}`);
-        item.append(el("strong", "", String(parseDate(date).getDate())), el("i", this.data.tasks.some((t) => t.scheduled === date && t.status === "open") ? "has-tasks" : ""));
+        item.append(el("strong", "", String(parseDate(date).getDate())), el("i", tasksForPeriod(this.data.tasks, "day", date, dateKey()).some((t) => t.status === "open") ? "has-tasks" : ""));
         item.setAttribute("aria-label", displayDate(date, { weekday: "long", day: "numeric", month: "long" }));
         item.setAttribute("aria-pressed", String(date === this.selected));
         days.append(item);
@@ -7351,19 +7335,25 @@ var Dashboard = class {
     }
     taskColumn.append(tabs, this.quickAdd());
     const visible = tasks.filter((t) => (this.filter === "all" ? this.store.settings.showCompleted || t.status === "open" : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map((label) => label.name).join(" ")}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
-    const overdue = scope === "day" ? this.data.tasks.filter((t) => t.status === "open" && t.scope === "day" && t.scheduled < this.selected && this.selected <= dateKey()) : [];
-    if (overdue.length && !this.query && this.filter !== "done") {
-      const banner = el("div", "dl-overdue-banner");
-      banner.append(el("strong", "", `\u041D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439 \xB7 ${overdue.length}`), el("p", "", this.store.settings.autoRollover ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u044B \u043D\u0438\u0436\u0435. \u0410\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u043D\u0430 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0438\u0439 \u0434\u0435\u043D\u044C \u2014 \u0432 12:00 \u043F\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0438 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430." : "\u0410\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432\u044B\u043A\u043B\u044E\u0447\u0435\u043D. \u0414\u0430\u0442\u0443 \u043C\u043E\u0436\u043D\u043E \u0438\u0437\u043C\u0435\u043D\u0438\u0442\u044C \u0432 \u0444\u043E\u0440\u043C\u0435 \u0437\u0430\u0434\u0430\u0447\u0438."));
-      taskColumn.append(banner);
-    }
     if (!visible.length) taskColumn.append(this.empty(this.query ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u044B" : "\u041D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447", this.query ? "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u043E\u0438\u0441\u043A\u043E\u0432\u044B\u0439 \u0437\u0430\u043F\u0440\u043E\u0441." : "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0443 \u0432 \u043F\u043E\u043B\u0435 \u0432\u044B\u0448\u0435."));
     else {
       const sorted = [...visible].sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || { high: 0, normal: 1, low: 2 }[a.priority] - { high: 0, normal: 1, low: 2 }[b.priority] || a.scheduled.localeCompare(b.scheduled));
-      const list = el("div", "dl-task-list");
-      list.setAttribute("aria-label", "\u0417\u0430\u0434\u0430\u0447\u0438");
-      sorted.forEach((task) => list.append(this.taskRow(task, scope !== "day")));
-      taskColumn.append(list);
+      const carried = sorted.filter((task) => carriedTask(task, scope, this.selected, dateKey()));
+      const planned = sorted.filter((task) => !carriedTask(task, scope, this.selected, dateKey()));
+      const appendList = (items) => {
+        if (!items.length) return;
+        const list = el("div", "dl-task-list");
+        list.setAttribute("aria-label", "\u0417\u0430\u0434\u0430\u0447\u0438");
+        items.forEach((task) => list.append(this.taskRow(task, scope !== "day")));
+        taskColumn.append(list);
+      };
+      appendList(planned);
+      if (carried.length) {
+        const banner = el("div", "dl-overdue-banner");
+        banner.append(el("strong", "", `${scope === "day" ? "\u041D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439" : "\u041D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0438\u0437 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u043F\u0435\u0440\u0438\u043E\u0434\u043E\u0432"} \xB7 ${carried.length}`));
+        taskColumn.append(banner);
+        appendList(carried);
+      }
     }
     const rail = el("aside", "dl-context-rail");
     rail.append(scope === "day" ? this.dailyHabits(habits) : this.habitAnalysis(scope));
@@ -7410,7 +7400,6 @@ var Dashboard = class {
     return ["day", "week", "month", "year"].includes(this.screen) ? this.screen : "day";
   }
   taskRow(task, showDate) {
-    var _a;
     const row = el("div", `dl-task-row ${task.status === "done" ? "is-done" : ""}`);
     const check = input("", "checkbox");
     check.className = "dl-checkbox";
@@ -7439,8 +7428,8 @@ var Dashboard = class {
     }
     if (showDate || task.scheduled !== this.selected) metadata.append(el("span", "", `${displayDate(task.scheduled)}${task.scope !== "day" ? ` \xB7 ${SCOPES[task.scope]}` : ""}`));
     if (task.due) metadata.append(el("span", task.due < dateKey() && task.status === "open" ? "dl-late" : "", `\u0414\u043E ${displayDate(task.due)}`));
-    const moved = task.history.filter((h) => h.type === "moved");
-    if (moved.length) metadata.append(el("span", "dl-moved", `\u21AA \u0441 ${displayDate((_a = moved[0].from) != null ? _a : task.created)} \xB7 ${moved.length} \u043F\u0435\u0440\u0435\u043D\u043E\u0441${moved.length === 1 ? "" : "\u043E\u0432"}`));
+    if (task.status === "open" && task.scheduled < dateKey()) metadata.append(el("span", "dl-moved", `\u0412 \u043F\u043B\u0430\u043D\u0435 \u0441 ${displayDate(task.scheduled)}`));
+    if (task.status === "done" && task.completed) metadata.append(el("span", "", `\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E ${displayDate(task.completed)}`));
     const checkTarget = el("label", "dl-checkbox-target");
     const checkMark = icon("check");
     checkMark.classList.add("dl-checkbox-mark");
@@ -7644,11 +7633,11 @@ var Dashboard = class {
     };
     page.append(controls, el("p", "dl-subtitle", `\u041F\u0435\u0440\u0438\u043E\u0434: ${periodKey(this.statsScope, this.selected)}`));
     const inRange = (date2) => !!date2 && inPeriod(date2, this.statsScope, this.selected);
-    const planned = this.data.tasks.filter((t) => inRange(t.scheduled) && t.status !== "cancelled");
+    const active = tasksForPeriod(this.data.tasks, this.statsScope, this.selected, dateKey()).filter((t) => t.status === "open");
     const completed = this.data.tasks.reduce((n, t) => n + (t.recurrence === "none" ? Number(t.status === "done" && inRange(t.completed)) : t.history.filter((h) => h.type === "completed" && inRange(h.date)).length), 0);
-    const moved = this.data.tasks.reduce((n, t) => n + t.history.filter((h) => h.type === "moved" && inRange(h.date)).length, 0);
+    const carried = active.filter((t) => carriedTask(t, this.statsScope, this.selected, dateKey())).length;
     const stats = el("div", "dl-stats");
-    for (const [label, value] of [["\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", planned.filter((t) => t.status === "open").length], ["\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434", completed], ["\u041F\u0435\u0440\u0435\u043D\u043E\u0441\u043E\u0432", moved]]) {
+    for (const [label, value] of [["\u0412 \u0440\u0430\u0431\u043E\u0442\u0435", active.length], ["\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043E \u0437\u0430 \u043F\u0435\u0440\u0438\u043E\u0434", completed], ["\u0421 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u043F\u0435\u0440\u0438\u043E\u0434\u043E\u0432", carried]]) {
       const stat = el("div", "dl-stat");
       stat.append(el("span", "dl-stat-label", label), el("strong", "dl-stat-value", String(value)));
       stats.append(stat);
@@ -7941,8 +7930,6 @@ var SmartTodoPlugin = class extends import_obsidian2.Plugin {
     super(...arguments);
     __publicField(this, "store");
     __publicField(this, "refreshTimer");
-    __publicField(this, "noonTimer");
-    __publicField(this, "checking", false);
     __publicField(this, "lastDay", "");
     __publicField(this, "unloaded", false);
     __publicField(this, "savedPanels");
@@ -7964,7 +7951,6 @@ var SmartTodoPlugin = class extends import_obsidian2.Plugin {
   async onload() {
     const saved = await this.loadData();
     this.settings = { ...DEFAULT_SETTINGS, ...saved && typeof saved === "object" ? saved : {} };
-    this.settings.autoRollover = typeof this.settings.autoRollover === "boolean" ? this.settings.autoRollover : true;
     this.settings.showCompleted = typeof this.settings.showCompleted === "boolean" ? this.settings.showCompleted : true;
     this.settings.tasksOnly = this.settings.tasksOnly === true;
     try {
@@ -7991,12 +7977,6 @@ var SmartTodoPlugin = class extends import_obsidian2.Plugin {
     this.addCommand({ id: "open-today", name: "\u041E\u0442\u043A\u0440\u044B\u0442\u044C \u0437\u0430\u043C\u0435\u0442\u043A\u0443 \u043D\u0430 \u0441\u0435\u0433\u043E\u0434\u043D\u044F", callback: () => {
       void this.openNote();
     } });
-    this.addCommand({ id: "rollover", name: "\u041F\u0440\u043E\u0432\u0435\u0440\u0438\u0442\u044C \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 (12:00)", callback: () => {
-      void this.store.rollover().then((n) => {
-        new import_obsidian2.Notice(this.settings.autoRollover ? `Smart Todo: \u043F\u0435\u0440\u0435\u043D\u0435\u0441\u0435\u043D\u043E \u0437\u0430\u0434\u0430\u0447 \u2014 ${n}` : "\u0412\u043A\u043B\u044E\u0447\u0438\u0442\u0435 \u0430\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432 \u043D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0430\u0445 Smart Todo.");
-        this.scheduleRefresh();
-      }).catch((error) => this.report(error));
-    } });
     this.addCommand({ id: "collect-checkboxes", name: "\u0421\u043E\u0431\u0440\u0430\u0442\u044C \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0438\u0437 \u043E\u0442\u043A\u0440\u044B\u0442\u043E\u0439 \u0437\u0430\u043C\u0435\u0442\u043A\u0438", callback: () => {
       void this.collectFromActiveNote();
     } });
@@ -8012,21 +7992,18 @@ var SmartTodoPlugin = class extends import_obsidian2.Plugin {
     }));
     this.registerDomEvent(document, "visibilitychange", () => {
       if (!document.hidden) {
-        this.scheduleNoon();
-        void this.checkDay();
+        this.checkDay();
       }
     });
     this.registerDomEvent(window, "focus", () => {
-      this.scheduleNoon();
-      void this.checkDay();
+      this.checkDay();
     });
     this.registerInterval(window.setInterval(() => {
-      void this.checkDay();
+      this.checkDay();
     }, 6e4));
     this.app.workspace.onLayoutReady(() => {
       if (!this.unloaded) {
-        this.scheduleNoon();
-        void this.checkDay();
+        this.checkDay();
       }
     });
   }
@@ -8034,34 +8011,16 @@ var SmartTodoPlugin = class extends import_obsidian2.Plugin {
     this.unloaded = true;
     this.setTasksOnly(false);
     if (this.refreshTimer !== void 0) window.clearTimeout(this.refreshTimer);
-    if (this.noonTimer !== void 0) window.clearTimeout(this.noonTimer);
-  }
-  scheduleNoon() {
-    if (this.unloaded) return;
-    if (this.noonTimer !== void 0) window.clearTimeout(this.noonTimer);
-    const now = /* @__PURE__ */ new Date();
-    this.noonTimer = window.setTimeout(() => {
-      this.noonTimer = void 0;
-      void this.checkDay();
-      this.scheduleNoon();
-    }, nextNoon(now).getTime() - now.getTime());
   }
   report(error) {
     console.error("Smart Todo", error);
     new import_obsidian2.Notice(`Smart Todo: ${error instanceof Error ? error.message : String(error)}`, 8e3);
   }
-  async checkDay() {
-    if (this.checking || this.unloaded) return;
-    this.checking = true;
-    try {
-      const n = await this.store.rollover();
-      const changed = this.lastDay !== dateKey();
-      this.lastDay = dateKey();
-      if (n || changed) this.scheduleRefresh();
-    } catch (error) {
-      this.report(error);
-    } finally {
-      this.checking = false;
+  checkDay() {
+    const today = dateKey();
+    if (!this.unloaded && this.lastDay !== today) {
+      this.lastDay = today;
+      this.scheduleRefresh();
     }
   }
   scheduleRefresh() {
@@ -8198,14 +8157,6 @@ var PlannerSettings = class extends import_obsidian2.PluginSettingTab {
         new import_obsidian2.Notice(error instanceof Error ? error.message : String(error), 9e3);
       } finally {
         btn.setDisabled(false);
-      }
-    }));
-    new import_obsidian2.Setting(container).setName("\u0410\u0432\u0442\u043E\u043F\u0435\u0440\u0435\u043D\u043E\u0441 \u0432 12:00").setDesc("\u0412 \u043F\u043E\u043B\u0434\u0435\u043D\u044C \u043F\u043E \u0432\u0440\u0435\u043C\u0435\u043D\u0438 \u0443\u0441\u0442\u0440\u043E\u0439\u0441\u0442\u0432\u0430 \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u043F\u0440\u043E\u0448\u0435\u0434\u0448\u0438\u0445 \u0434\u043D\u0435\u0439 \u043F\u043E\u043B\u0443\u0447\u0430\u044E\u0442 \u043D\u043E\u0432\u0443\u044E \u0434\u0430\u0442\u0443. \u0415\u0441\u043B\u0438 Obsidian \u0431\u044B\u043B \u0437\u0430\u043A\u0440\u044B\u0442, \u043F\u0440\u043E\u043F\u0443\u0449\u0435\u043D\u043D\u0430\u044F \u043F\u0440\u043E\u0432\u0435\u0440\u043A\u0430 \u0432\u044B\u043F\u043E\u043B\u043D\u044F\u0435\u0442\u0441\u044F \u043F\u0440\u0438 \u043E\u0442\u043A\u0440\u044B\u0442\u0438\u0438. \u0414\u043E \u043F\u043E\u043B\u0443\u0434\u043D\u044F \u0432\u0447\u0435\u0440\u0430\u0448\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u043D\u0435 \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u044F\u0442\u0441\u044F. \u0418\u0441\u0445\u043E\u0434\u043D\u0430\u044F \u0434\u0430\u0442\u0430 \u0438 \u0432\u0440\u0435\u043C\u044F \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u0430 \u0441\u043E\u0445\u0440\u0430\u043D\u044F\u044E\u0442\u0441\u044F \u0432 \u0438\u0441\u0442\u043E\u0440\u0438\u0438. \u041F\u043B\u0430\u043D\u044B \u043D\u0435\u0434\u0435\u043B\u0438, \u043C\u0435\u0441\u044F\u0446\u0430 \u0438 \u0433\u043E\u0434\u0430 \u043D\u0435 \u043F\u0435\u0440\u0435\u043D\u043E\u0441\u044F\u0442\u0441\u044F.").addToggle((toggle) => toggle.setValue(this.plugin.settings.autoRollover).onChange(async (value) => {
-      this.plugin.settings.autoRollover = value;
-      await this.plugin.saveSettings();
-      if (value) {
-        await this.plugin.store.rollover();
-        this.plugin.scheduleRefresh();
       }
     }));
     new import_obsidian2.Setting(container).setName("\u041F\u043E\u043A\u0430\u0437\u044B\u0432\u0430\u0442\u044C \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435").setDesc("\u0412 \u0440\u0430\u0437\u0434\u0435\u043B\u0435 \xAB\u0412\u0441\u0435\xBB. \u0412\u043A\u043B\u0430\u0434\u043A\u0430 \xAB\u0413\u043E\u0442\u043E\u0432\u043E\xBB \u0434\u043E\u0441\u0442\u0443\u043F\u043D\u0430 \u0432\u0441\u0435\u0433\u0434\u0430.").addToggle((toggle) => toggle.setValue(this.plugin.settings.showCompleted).onChange(async (value) => {
