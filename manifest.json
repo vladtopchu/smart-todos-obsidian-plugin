@@ -1,7 +1,7 @@
 {
   "id": "smart-todos",
   "name": "Smart Todo",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "minAppVersion": "1.8.0",
   "description": "Календарь, задачи с автопереносом, планы, цели и привычки в обычных Markdown-файлах.",
   "author": "Personal build for Vlad",

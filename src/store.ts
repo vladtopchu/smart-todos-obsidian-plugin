@@ -3,6 +3,7 @@ import type { Codec, Goal, Habit, Settings, Snapshot, Storage, Task, Scope } fro
 import { newId } from './ids';
 import { normalizeLabels } from './labels';
 import { entityType, matchesEntityType } from './identity';
+import { repairMergedTaskHistory } from './sync-history';
 
 interface Document { data: Record<string, unknown>; body: string }
 const TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- (?:smart-todo|dayline):task -->[ \t]*$/m;
@@ -28,7 +29,13 @@ export class PlannerStore {
   private decode(text: string): Document {
     const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
     if (!match) throw new Error('Отсутствуют свойства Markdown');
-    const data = this.codec.parse(match[1]!);
+    let data: Record<string, unknown>;
+    try { data = this.codec.parse(match[1]!); }
+    catch (error) {
+      const repaired = repairMergedTaskHistory(match[1]!);
+      if (repaired === null) throw error;
+      data = this.codec.parse(repaired);
+    }
     if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Некорректные свойства Markdown');
     if (typeof data.id !== 'string' || !data.id) throw new Error('Отсутствует id');
     return { data, body: text.slice(match[0].length) };
