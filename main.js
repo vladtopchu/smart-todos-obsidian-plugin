@@ -56,7 +56,7 @@ var init_manifest = __esm({
     manifest_default = {
       id: "smart-todos",
       name: "Smart Todo",
-      version: "1.0.5",
+      version: "1.0.6",
       minAppVersion: "1.8.0",
       description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
       author: "Personal build for Vlad",
@@ -128,7 +128,7 @@ async function importLegacy(store, source, text, today) {
       if (frontmatter && store.codec.parse(frontmatter[1]).importKey === importKey) continue;
       throw new Error(`\u041A\u043E\u043D\u0444\u043B\u0438\u043A\u0442 \u0438\u043C\u043F\u043E\u0440\u0442\u0430: ${path}. \u0421\u0443\u0449\u0435\u0441\u0442\u0432\u0443\u044E\u0449\u0438\u0439 \u0444\u0430\u0439\u043B \u0441\u043E\u0445\u0440\u0430\u043D\u0451\u043D.`);
     }
-    const data = { type: entityType("task"), id, title: item.title, status: "open", scheduled: today, scope: "day", priority: "normal", recurrence: "none", goal: "", due: "", created: today, completed: "", history: [], source, importKey };
+    const data = { type: entityType("task"), id, title: item.title, status: "open", scheduled: today, scope: "day", priority: "normal", recurrence: "none", goal: "", due: "", created: today, createdAt: store.nextCreationTime(), completed: "", history: [], source, importKey };
     const sourceLink = source.replace(/\.md$/, "");
     const body = `- [ ] ${item.title} <!-- smart-todo:task -->
 
@@ -6672,6 +6672,13 @@ function repairMergedTaskHistory(source) {
   return changed && !ambiguous ? doc.toString() : null;
 }
 
+// src/task-order.ts
+function compareTaskCreation(a, b) {
+  if (a.createdAt && b.createdAt) return a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
+  if (a.createdAt || b.createdAt) return a.createdAt ? 1 : -1;
+  return a.created.localeCompare(b.created) || a.id.localeCompare(b.id);
+}
+
 // src/store.ts
 var TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- (?:smart-todo|dayline):task -->[ \t]*$/m;
 var str = (v, fallback = "") => typeof v === "string" ? v : fallback;
@@ -6692,6 +6699,7 @@ var PlannerStore = class {
     this.now = now;
     this.clock = clock;
     __publicField(this, "queue", Promise.resolve());
+    __publicField(this, "lastCreationTime", 0);
     settings.root = normalizeRoot(settings.root);
     settings.labelPresets = normalizeLabels(settings.labelPresets);
   }
@@ -6700,6 +6708,10 @@ var PlannerStore = class {
     this.queue = next.catch(() => {
     });
     return next;
+  }
+  nextCreationTime() {
+    this.lastCreationTime = Math.max(this.clock().getTime(), this.lastCreationTime + 1);
+    return new Date(this.lastCreationTime).toISOString();
   }
   decode(text) {
     const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
@@ -6729,6 +6741,8 @@ ${doc.body}`;
     const line = TASK_LINE.exec(doc.body);
     const status = line ? line[1].toLowerCase() === "x" ? "done" : line[1] === "-" ? "cancelled" : "open" : pick(d.status, ["open", "done", "cancelled"], "open");
     const history = Array.isArray(d.history) ? d.history.filter((h) => !!h && typeof h === "object" && validDate(h.date) && ["moved", "completed", "reopened", "cancelled"].includes(h.type)) : [];
+    const createdAt = typeof d.createdAt === "string" && d.createdAt.includes("T") && Number.isFinite(Date.parse(d.createdAt)) ? new Date(d.createdAt).toISOString() : void 0;
+    if (createdAt) this.lastCreationTime = Math.max(this.lastCreationTime, Date.parse(createdAt));
     return {
       id: str(d.id),
       path,
@@ -6743,6 +6757,7 @@ ${doc.body}`;
       labels: normalizeLabels(d.labels),
       due: validDate(d.due) ? d.due : "",
       created: validDate(d.created) ? d.created : d.scheduled,
+      createdAt,
       completed: status === "done" ? validDate(d.completed) ? d.completed : d.scheduled : "",
       history,
       description: doc.body.replace(TASK_LINE, "").trim()
@@ -6772,7 +6787,7 @@ ${doc.body}`;
         result.warnings.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
       }
     }));
-    result.tasks.sort((a, b) => a.scheduled.localeCompare(b.scheduled) || a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+    result.tasks.sort(compareTaskCreation);
     result.goals.sort((a, b) => a.title.localeCompare(b.title, "ru"));
     result.habits.sort((a, b) => a.created.localeCompare(b.created) || a.title.localeCompare(b.title, "ru"));
     return result;
@@ -6785,7 +6800,7 @@ ${doc.body}`;
       var _a, _b, _c, _d, _e, _f, _g;
       const id = newId();
       const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: entityType("task"), id, title, status: "open", scheduled: input2.scheduled, initialScheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", goal: (_d = input2.goal) != null ? _d : "", labels: normalizeLabels(input2.labels), due: (_e = input2.due) != null ? _e : "", created: this.now(), completed: "", history: [] };
+      const data = { type: entityType("task"), id, title, status: "open", scheduled: input2.scheduled, initialScheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", goal: (_d = input2.goal) != null ? _d : "", labels: normalizeLabels(input2.labels), due: (_e = input2.due) != null ? _e : "", created: this.now(), createdAt: this.nextCreationTime(), completed: "", history: [] };
       await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- smart-todo:task -->
 
 ${(_g = (_f = input2.description) == null ? void 0 : _f.trim()) != null ? _g : ""}
@@ -7337,9 +7352,8 @@ var Dashboard = class {
     const visible = tasks.filter((t) => (this.filter === "all" ? this.store.settings.showCompleted || t.status === "open" : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map((label) => label.name).join(" ")}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
     if (!visible.length) taskColumn.append(this.empty(this.query ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u044B" : "\u041D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447", this.query ? "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u043E\u0438\u0441\u043A\u043E\u0432\u044B\u0439 \u0437\u0430\u043F\u0440\u043E\u0441." : "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0443 \u0432 \u043F\u043E\u043B\u0435 \u0432\u044B\u0448\u0435."));
     else {
-      const sorted = [...visible].sort((a, b) => Number(a.status === "done") - Number(b.status === "done") || { high: 0, normal: 1, low: 2 }[a.priority] - { high: 0, normal: 1, low: 2 }[b.priority] || a.scheduled.localeCompare(b.scheduled));
-      const carried = sorted.filter((task) => carriedTask(task, scope, this.selected, dateKey()));
-      const planned = sorted.filter((task) => !carriedTask(task, scope, this.selected, dateKey()));
+      const carried = visible.filter((task) => carriedTask(task, scope, this.selected, dateKey()));
+      const planned = visible.filter((task) => !carriedTask(task, scope, this.selected, dateKey()));
       const appendList = (items) => {
         if (!items.length) return;
         const list = el("div", "dl-task-list");

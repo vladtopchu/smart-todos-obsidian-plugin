@@ -27,7 +27,7 @@ export async function importLegacy(store: PlannerStore, source: string, text: st
       if (frontmatter && store.codec.parse(frontmatter[1]!).importKey === importKey) continue;
       throw new Error(`Конфликт импорта: ${path}. Существующий файл сохранён.`);
     }
-    const data = { type: entityType('task'), id, title: item.title, status: 'open', scheduled: today, scope: 'day', priority: 'normal', recurrence: 'none', goal: '', due: '', created: today, completed: '', history: [], source, importKey };
+    const data = { type: entityType('task'), id, title: item.title, status: 'open', scheduled: today, scope: 'day', priority: 'normal', recurrence: 'none', goal: '', due: '', created: today, createdAt: store.nextCreationTime(), completed: '', history: [], source, importKey };
     const sourceLink = source.replace(/\.md$/, '');
     const body = `- [ ] ${item.title} <!-- smart-todo:task -->\n\nИсточник: [[${sourceLink}]] (строка ${item.line}).\n`;
     await store.storage.create(path, `---\n${store.codec.stringify(data).trim()}\n---\n${body}`); count++;

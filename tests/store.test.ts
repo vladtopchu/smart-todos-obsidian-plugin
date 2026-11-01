@@ -7,6 +7,33 @@ import { parseDate } from '../src/dates';
 
 function setup(today = '2026-10-30') { const storage = new MemoryStorage(); let date = today; let hour = 12; let minute = 0; const store = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS }, () => date, () => { const now = parseDate(date); now.setHours(hour, minute, 0, 0); return now; }); return { store, storage, setDate: (value: string) => { date = value; }, setTime: (h: number, m = 0) => { hour = h; minute = m; } }; }
 describe('atomic task lifecycle', () => {
+  it('persists creation order for same-millisecond tasks across reloads and edits', async () => {
+    const { store, storage } = setup();
+    for (const [title, id] of [['First', 'z-first'], ['Second', 'a-second'], ['Third', 'm-third']]) {
+      const path = await store.createTask({ title: title!, scheduled: '2026-10-30' });
+      storage.files.set(path, (await storage.read(path)).replace(/"id": "[^"]+"/, `"id": "${id}"`));
+    }
+    storage.files = new Map([...storage.files].reverse());
+    const reloaded = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS }, () => '2026-10-30', () => parseDate('2026-10-30'));
+    const tasks = (await reloaded.snapshot()).tasks;
+    expect(tasks.map(t => t.title)).toEqual(['First', 'Second', 'Third']);
+    expect(new Set(tasks.map(t => t.createdAt)).size).toBe(3);
+    await reloaded.updateTask(tasks[0]!.path, { priority: 'low' });
+    await reloaded.setTaskStatus(tasks[0]!.path, 'done');
+    await reloaded.createTask({ title: 'Fourth', scheduled: '2026-10-30', priority: 'high' });
+    const next = (await reloaded.snapshot()).tasks;
+    expect(next.map(t => t.title)).toEqual(['First', 'Second', 'Third', 'Fourth']);
+    expect(next[0]!.createdAt).toBe(tasks[0]!.createdAt);
+    expect(next[3]!.createdAt! > tasks[2]!.createdAt!).toBe(true);
+  });
+  it('keeps legacy tasks stable ahead of new tasks without adding invented timestamps', async () => {
+    const { store, storage } = setup();
+    const original = '---\n' + codec.stringify({ type: 'smart-todo-task', id: 'old', title: 'Legacy', status: 'open', scheduled: '2026-10-30', created: '2026-10-30', history: [] }) + '\n---\n';
+    storage.files.set('_todotracking/tasks/old.md', original);
+    await store.createTask({ title: 'New', scheduled: '2026-10-30' });
+    expect((await store.snapshot()).tasks.map(t => t.title)).toEqual(['Legacy', 'New']);
+    expect(await storage.read('_todotracking/tasks/old.md')).toBe(original);
+  });
   it('keeps task dates, history and file bytes unchanged across days and concurrent reads', async () => {
     const { store, storage, setDate, setTime } = setup();
     const path = await store.createTask({ title: 'Old task', scheduled: '2026-10-20' });
@@ -139,6 +166,7 @@ describe('existing Markdown import', () => {
     expect(await importLegacy(store, 'Old.md', text, '2026-10-30')).toBe(3);
     expect(await importLegacy(store, 'Old.md', '\nExtra text\n' + text, '2026-10-30')).toBe(0);
     expect((await store.snapshot()).tasks).toHaveLength(3); expect(await storage.read('Old.md')).toBe(text);
+    expect((await store.snapshot()).tasks.map(t => t.title)).toEqual(['Same', 'Same', 'Different']);
   });
   it('does not silently skip or overwrite a colliding import filename', async () => {
     const { store, storage } = setup(); await importLegacy(store, 'Old.md', '- [ ] Same', '2026-10-30');

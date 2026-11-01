@@ -15,6 +15,19 @@ function setup() {
   return { storage, store, root, messages, host, dashboard: new Dashboard(root, store, host) };
 }
 describe('planner UI', () => {
+  it('appends new tasks and preserves row order when priority and completion change', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 10, 1, 12));
+    const { store, dashboard, root } = setup();
+    const first = await store.createTask({ title: 'First', scheduled: dateKey(), priority: 'low' });
+    await store.createTask({ title: 'Second', scheduled: dateKey(), priority: 'high' });
+    await dashboard.refresh();
+    const titles = () => [...root.querySelectorAll('.dl-task-title')].map(node => node.textContent);
+    expect(titles()).toEqual(['First', 'Second']);
+    await store.setTaskStatus(first, 'done');
+    await store.createTask({ title: 'Third', scheduled: dateKey() });
+    await dashboard.refresh();
+    expect(titles()).toEqual(['First', 'Second', 'Third']);
+  });
   it('follows today across midnight without writing task files and leaves a chosen historical day alone', async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 31, 23, 59));
     const { store, storage, dashboard, root } = setup();

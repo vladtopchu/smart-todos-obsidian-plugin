@@ -4,6 +4,7 @@ import { newId } from './ids';
 import { normalizeLabels } from './labels';
 import { entityType, matchesEntityType } from './identity';
 import { repairMergedTaskHistory } from './sync-history';
+import { compareTaskCreation } from './task-order';
 
 interface Document { data: Record<string, unknown>; body: string }
 const TASK_LINE = /^- \[([ xX-])\] (.*?) <!-- (?:smart-todo|dayline):task -->[ \t]*$/m;
@@ -19,12 +20,17 @@ export function normalizeRoot(input: string): string {
 }
 export class PlannerStore {
   private queue: Promise<unknown> = Promise.resolve();
+  private lastCreationTime = 0;
   constructor(readonly storage: Storage, readonly codec: Codec, public settings: Settings, private now = () => dateKey(), private clock = () => new Date()) {
     settings.root = normalizeRoot(settings.root);
     settings.labelPresets = normalizeLabels(settings.labelPresets);
   }
   private serial<T>(action: () => Promise<T>): Promise<T> {
     const next = this.queue.then(action, action); this.queue = next.catch(() => {}); return next;
+  }
+  nextCreationTime(): string {
+    this.lastCreationTime = Math.max(this.clock().getTime(), this.lastCreationTime + 1);
+    return new Date(this.lastCreationTime).toISOString();
   }
   private decode(text: string): Document {
     const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
@@ -46,12 +52,15 @@ export class PlannerStore {
     const line = TASK_LINE.exec(doc.body);
     const status = line ? (line[1]!.toLowerCase() === 'x' ? 'done' : line[1] === '-' ? 'cancelled' : 'open') : pick(d.status, ['open', 'done', 'cancelled'], 'open');
     const history = Array.isArray(d.history) ? d.history.filter((h): h is Task['history'][number] => !!h && typeof h === 'object' && validDate(h.date) && ['moved', 'completed', 'reopened', 'cancelled'].includes(h.type)) : [];
+    const createdAt = typeof d.createdAt === 'string' && d.createdAt.includes('T') && Number.isFinite(Date.parse(d.createdAt)) ? new Date(d.createdAt).toISOString() : undefined;
+    if (createdAt) this.lastCreationTime = Math.max(this.lastCreationTime, Date.parse(createdAt));
     return {
       id: str(d.id), path, title: line?.[2] ?? str(d.title, 'Без названия'), status,
       scheduled: d.scheduled, initialScheduled: validDate(d.initialScheduled) ? d.initialScheduled : history.find(h => h.type === 'moved' && validDate(h.from))?.from ?? d.scheduled, scope: pick(d.scope, ['day', 'week', 'month', 'year'], 'day'),
       priority: pick(d.priority, ['normal', 'high', 'low'], 'normal'),
       recurrence: pick(d.recurrence, ['none', 'daily', 'weekdays', 'weekly', 'monthly'], 'none'),
       goal: str(d.goal), labels: normalizeLabels(d.labels), due: validDate(d.due) ? d.due : '', created: validDate(d.created) ? d.created : d.scheduled,
+      createdAt,
       completed: status === 'done' ? (validDate(d.completed) ? d.completed : d.scheduled) : '',
       history, description: doc.body.replace(TASK_LINE, '').trim(),
     };
@@ -78,7 +87,7 @@ export class PlannerStore {
         else if (matchesEntityType(doc.data.type, 'habit')) result.habits.push(this.habit(doc, path));
       } catch (error) { result.warnings.push(`${path}: ${error instanceof Error ? error.message : String(error)}`); }
     }));
-    result.tasks.sort((a, b) => a.scheduled.localeCompare(b.scheduled) || a.created.localeCompare(b.created) || a.id.localeCompare(b.id));
+    result.tasks.sort(compareTaskCreation);
     result.goals.sort((a, b) => a.title.localeCompare(b.title, 'ru'));
     result.habits.sort((a, b) => a.created.localeCompare(b.created) || a.title.localeCompare(b.title, 'ru'));
     return result;
@@ -89,7 +98,7 @@ export class PlannerStore {
     if (!validDate(input.scheduled) || (input.due && !validDate(input.due))) throw new Error('Проверьте дату');
     return this.serial(async () => {
       const id = newId(); const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: entityType('task'), id, title, status: 'open', scheduled: input.scheduled, initialScheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', goal: input.goal ?? '', labels: normalizeLabels(input.labels), due: input.due ?? '', created: this.now(), completed: '', history: [] };
+      const data = { type: entityType('task'), id, title, status: 'open', scheduled: input.scheduled, initialScheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', goal: input.goal ?? '', labels: normalizeLabels(input.labels), due: input.due ?? '', created: this.now(), createdAt: this.nextCreationTime(), completed: '', history: [] };
       await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- smart-todo:task -->\n\n${input.description?.trim() ?? ''}\n` }));
       return path;
     });

@@ -18,6 +18,7 @@ export interface Task {
   labels: TaskLabel[];
   due: string;
   created: string;
+  createdAt?: string;
   completed: string;
   history: { type: 'moved' | 'completed' | 'reopened' | 'cancelled'; date: string; from?: string; to?: string; at?: string; effectiveAt?: string; automatic?: boolean }[];
   description: string;

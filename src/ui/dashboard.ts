@@ -155,9 +155,8 @@ export class Dashboard {
     const visible = tasks.filter(t => (this.filter === 'all' ? this.store.settings.showCompleted || t.status === 'open' : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map(label => label.name).join(' ')}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
     if (!visible.length) taskColumn.append(this.empty(this.query ? 'Задачи не найдены' : 'Нет задач', this.query ? 'Измените поисковый запрос.' : 'Добавьте задачу в поле выше.'));
     else {
-      const sorted = [...visible].sort((a, b) => Number(a.status === 'done') - Number(b.status === 'done') || ({ high: 0, normal: 1, low: 2 }[a.priority] - { high: 0, normal: 1, low: 2 }[b.priority]) || a.scheduled.localeCompare(b.scheduled));
-      const carried = sorted.filter(task => carriedTask(task, scope, this.selected, dateKey()));
-      const planned = sorted.filter(task => !carriedTask(task, scope, this.selected, dateKey()));
+      const carried = visible.filter(task => carriedTask(task, scope, this.selected, dateKey()));
+      const planned = visible.filter(task => !carriedTask(task, scope, this.selected, dateKey()));
       const appendList = (items: Task[]) => {
         if (!items.length) return;
         const list = el('div', 'dl-task-list'); list.setAttribute('aria-label', 'Задачи'); items.forEach(task => list.append(this.taskRow(task, scope !== 'day'))); taskColumn.append(list);
