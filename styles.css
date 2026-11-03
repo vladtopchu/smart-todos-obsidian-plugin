@@ -47,6 +47,8 @@
 .dl-settings-button { padding: 4px 0; border: 0; background: transparent !important; display: flex; align-items: center; gap: 9px; text-align: left; color: var(--dl-muted) !important; font-size: 11px !important; }
 .dl-settings-button svg { width: 15px; height: 15px; }
 .dl-main { display: flex; flex-direction: column; min-width: 0; }
+/* Obsidian's mobile navigation overlays custom views, including tasks-only mode. */
+.is-mobile .dl-main { padding-bottom: max(0px, var(--view-bottom-spacing, calc(var(--navbar-height, 80px) + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))))); }
 .dl-topbar { min-height: 52px; border-bottom: 1px solid var(--dl-line); display: flex; justify-content: space-between; align-items: center; padding: 12px 36px; gap: 12px; }
 .dl-breadcrumb { display: flex; align-items: center; gap: 12px; color: var(--dl-muted); font-size: 10px; }
 .dl-breadcrumb svg { width: 14px; height: 14px; }
@@ -95,9 +97,9 @@
 .dl-tab { font-size: 11px !important; padding: 9px 0 11px; background: transparent !important; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--dl-muted) !important; }
 .dl-tab.is-active { color: var(--dl-accent) !important; border-bottom-color: var(--dl-accent); }
 .dl-quick-add { display: flex; align-items: center; gap: 10px; margin: 16px 20px 6px; border: 1px solid var(--dl-line); border-radius: 3px; padding: 8px 10px; color: var(--dl-accent); }
-.dl-quick-add > svg { width: 16px; height: 16px; }
+.dl-quick-more { flex: 0 0 auto; min-width: 28px; min-height: 28px; padding: 4px; }
 .dl-app .dl-quick-add input { border: 0; outline: 0; background: transparent; width: 100%; min-width: 0; height: auto; padding: 4px 0; box-shadow: none; font-size: 12px; color: var(--dl-ink); }
-.dl-quick-submit { display: grid; place-items: center; border: 0; background: var(--dl-accent-soft) !important; padding: 4px; border-radius: 4px; color: var(--dl-accent) !important; }
+.dl-quick-submit { display: grid; place-items: center; flex: 0 0 auto; border: 0; background: var(--dl-accent-soft) !important; padding: 4px; border-radius: 4px; color: var(--dl-accent) !important; }
 .dl-quick-submit svg { width: 14px; height: 14px; }
 .dl-task-list { padding: 0 20px; }
 .dl-task-row { display: flex; align-items: flex-start; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--dl-line); }
@@ -197,6 +199,8 @@
 .dl-field { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
 .dl-field-label { font-size: 11px; font-weight: 500; }
 .dl-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.dl-repeat-interval { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.dl-repeat-interval[hidden] { display: none; }
 .dl-dialog textarea { resize: vertical; min-height: 95px; }
 .dl-form-hint { font-size: 11px; color: var(--dl-muted); line-height: 1.7; margin: 0; }
 .dl-form-error { color: var(--dl-danger); font-size: 12px; margin: 0; }
@@ -288,6 +292,7 @@
   .dl-task-panel .dl-search { max-width: 125px; }
   .dl-app .dl-task-title { font-size: 13px !important; }
   .dl-task-row { padding-top: 14px; padding-bottom: 14px; }
+  .dl-quick-add > button { min-width: 44px; min-height: 44px; }
   .dl-row-menu { min-width: 44px; min-height: 44px; opacity: 1; }
   .dl-checkbox-target { width: 44px; height: 44px; flex-basis: 44px; margin-top: -8px; margin-bottom: -8px; }
   .dl-app input[type=checkbox].dl-checkbox { width: 20px; height: 20px; }

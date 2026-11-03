@@ -102,6 +102,39 @@ describe('atomic task lifecycle', () => {
     await store.setTaskStatus(path, 'done');
     expect((await store.snapshot()).tasks[0]).toMatchObject({ scheduled: '2026-11-02', status: 'open', history: [{ type: 'completed', date: '2026-11-01', from: '2026-10-30' }] });
   });
+  it.each([
+    ['daily', 3, '2026-11-04'], ['weekly', 2, '2026-11-15'],
+    ['monthly', 3, '2027-02-01'], ['yearly', 2, '2028-11-01'],
+  ] as const)('persists a custom %s interval through reload and atomic overdue completion', async (recurrence, recurrenceInterval, expected) => {
+    const { store, storage } = setup('2026-11-01');
+    const path = await store.createTask({ title: 'Custom repeat', scheduled: '2026-10-20', recurrence, recurrenceInterval });
+    const reloaded = new PlannerStore(storage, codec, { ...DEFAULT_SETTINGS }, () => '2026-11-01');
+    expect((await reloaded.snapshot()).tasks[0]).toMatchObject({ recurrence, recurrenceInterval });
+    await Promise.all([reloaded.setTaskStatus(path, 'done'), reloaded.setTaskStatus(path, 'done')]);
+    expect(storage.files.size).toBe(1);
+    expect((await reloaded.snapshot()).tasks[0]).toMatchObject({ recurrence, recurrenceInterval, status: 'open', scheduled: expected, history: [{ type: 'completed', date: '2026-11-01', from: '2026-10-20' }] });
+  });
+  it('reads old repeats as an interval of one without rewriting and can edit their interval', async () => {
+    const { store, storage } = setup();
+    const path = await store.createTask({ title: 'Legacy repeat', scheduled: '2026-10-30', recurrence: 'weekly' });
+    const raw = (await storage.read(path)).replace(/\s*"recurrenceInterval": 1,/, ''); storage.files.set(path, raw);
+    expect((await store.snapshot()).tasks[0]!.recurrenceInterval).toBe(1); expect(await storage.read(path)).toBe(raw);
+    await store.updateTask(path, { recurrenceInterval: 3 });
+    await store.setTaskStatus(path, 'done');
+    expect((await store.snapshot()).tasks[0]).toMatchObject({ recurrence: 'weekly', recurrenceInterval: 3, scheduled: '2026-11-20' });
+  });
+  it('rejects invalid interval writes and reports malformed intervals without changing files', async () => {
+    const { store, storage } = setup();
+    const path = await store.createTask({ title: 'Valid repeat', scheduled: '2026-10-30', recurrence: 'monthly' });
+    const original = await storage.read(path);
+    for (const recurrenceInterval of [0, -2, 1.5, NaN, Infinity]) {
+      await expect(store.createTask({ title: 'Invalid repeat', scheduled: '2026-10-30', recurrence: 'daily', recurrenceInterval })).rejects.toThrow('Интервал');
+      await expect(store.updateTask(path, { recurrenceInterval })).rejects.toThrow('Интервал');
+    }
+    expect(storage.files.size).toBe(1); expect(await storage.read(path)).toBe(original);
+    const malformed = original.replace('"recurrenceInterval": 1', '"recurrenceInterval": 0'); storage.files.set(path, malformed);
+    const data = await store.snapshot(); expect(data.tasks).toHaveLength(0); expect(data.warnings).toHaveLength(1); expect(await storage.read(path)).toBe(malformed);
+  });
   it('reports malformed files without hiding valid tasks', async () => {
     const { store, storage } = setup(); await store.createTask({ title: 'Valid', scheduled: '2026-10-30' });
     storage.files.set('_todotracking/tasks/broken.md', 'Invalid');

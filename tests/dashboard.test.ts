@@ -95,6 +95,55 @@ describe('planner UI', () => {
     expect(root.querySelector<HTMLInputElement>('[data-focus="quick"]')!.value).toBe('Draft');
     root.querySelector<HTMLButtonElement>('[aria-label="Показать панели"]')!.click(); expect(root.classList.contains('dl-tasks-only')).toBe(false);
   });
+  it('opens full creation from the quick-add button with its draft, date and horizon, and preserves the draft on cancel', async () => {
+    const { dashboard, root, storage } = setup(); await dashboard.refresh(); dashboard.navigate('week', '2026-12-31');
+    const quick = root.querySelector<HTMLInputElement>('[data-focus="quick"]')!; quick.value = 'My draft'; quick.dispatchEvent(new Event('input'));
+    const more = root.querySelector<HTMLButtonElement>('[aria-label="Полное создание задачи"]')!;
+    expect(more.type).toBe('button'); expect(more.querySelector('svg')).not.toBeNull(); more.click();
+    const form = document.querySelector<HTMLFormElement>('.dl-form')!;
+    expect(form.querySelector<HTMLInputElement>('input[type="text"]')!.value).toBe('My draft');
+    expect(form.querySelector<HTMLInputElement>('input[type="date"]')!.value).toBe('2026-12-28');
+    expect(form.querySelector<HTMLSelectElement>('select')!.value).toBe('week');
+    form.querySelector<HTMLButtonElement>('[aria-label="Отмена"]')!.click();
+    expect(storage.files.size).toBe(0); expect(quick.value).toBe('My draft');
+  });
+  it('creates one fully configured task from quick-add and clears the draft only after saving', async () => {
+    const { dashboard, root, store } = setup(); await store.saveGoal({ title: 'Goal', target: '', description: '' }); await dashboard.refresh();
+    root.querySelector<HTMLButtonElement>('[aria-label="Только задачи"]')!.click();
+    const quick = root.querySelector<HTMLInputElement>('[data-focus="quick"]')!; quick.value = 'Configured'; quick.dispatchEvent(new Event('input'));
+    root.querySelector<HTMLButtonElement>('[aria-label="Полное создание задачи"]')!.click();
+    const form = document.querySelector<HTMLFormElement>('.dl-form')!;
+    const selects = form.querySelectorAll<HTMLSelectElement>('.dl-form-grid select');
+    selects[1]!.value = 'high'; selects[2]!.value = 'custom'; selects[2]!.dispatchEvent(new Event('change')); selects[3]!.value = (await store.snapshot()).goals[0]!.id;
+    form.querySelector<HTMLInputElement>('[aria-label="Интервал повтора"]')!.value = '3'; form.querySelector<HTMLSelectElement>('[aria-label="Единица интервала"]')!.value = 'monthly';
+    form.querySelector<HTMLInputElement>('[aria-label="Название метки"]')!.value = 'Дом';
+    form.querySelector<HTMLTextAreaElement>('textarea')!.value = 'Details [[link]]';
+    form.querySelectorAll<HTMLInputElement>('input[type="date"]')[1]!.value = '2027-01-01';
+    await form.onsubmit!(new Event('submit', { cancelable: true }) as SubmitEvent);
+    const data = await store.snapshot(); expect(data.tasks).toHaveLength(1);
+    expect(data.tasks[0]).toMatchObject({ title: 'Configured', scheduled: dateKey(), scope: 'day', priority: 'high', recurrence: 'monthly', recurrenceInterval: 3, goal: data.goals[0]!.id, due: '2027-01-01', description: 'Details [[link]]', labels: [{ name: 'Дом', color: 'blue' }] });
+    expect(root.querySelector<HTMLInputElement>('[data-focus="quick"]')!.value).toBe(''); expect(root.querySelector('.dl-task-repeat')!.textContent).toBe('Раз в 3 месяца');
+    root.querySelector<HTMLButtonElement>('.dl-task-title')!.click();
+    const edit = document.querySelector<HTMLFormElement>('.dl-form')!;
+    expect(edit.querySelector<HTMLInputElement>('[aria-label="Интервал повтора"]')!.value).toBe('3');
+    expect(edit.querySelector<HTMLSelectElement>('[aria-label="Единица интервала"]')!.value).toBe('monthly');
+    expect(edit.querySelector<HTMLElement>('.dl-repeat-interval')!.hidden).toBe(false);
+    const repeat = edit.querySelectorAll<HTMLSelectElement>('.dl-form-grid select')[2]!; repeat.value = 'weekly'; repeat.dispatchEvent(new Event('change'));
+    expect(edit.querySelector<HTMLInputElement>('[aria-label="Интервал повтора"]')!.disabled).toBe(true);
+    await edit.onsubmit!(new Event('submit', { cancelable: true }) as SubmitEvent);
+    expect((await store.snapshot()).tasks[0]).toMatchObject({ recurrence: 'weekly', recurrenceInterval: 1 });
+  });
+  it('keeps the creation form open on an invalid custom interval or a non-daily repeat', async () => {
+    const { dashboard, root, storage } = setup(); await dashboard.refresh(); root.querySelector<HTMLButtonElement>('[aria-label="Полное создание задачи"]')!.click();
+    const form = document.querySelector<HTMLFormElement>('.dl-form')!; form.querySelector<HTMLInputElement>('input[type="text"]')!.value = 'Invalid interval';
+    const selects = form.querySelectorAll<HTMLSelectElement>('.dl-form-grid select'); selects[2]!.value = 'custom'; selects[2]!.dispatchEvent(new Event('change'));
+    form.querySelector<HTMLInputElement>('[aria-label="Интервал повтора"]')!.value = '0';
+    await form.onsubmit!(new Event('submit', { cancelable: true }) as SubmitEvent);
+    expect(form.querySelector('[role="alert"]')!.textContent).toContain('Интервал'); expect(storage.files.size).toBe(0);
+    form.querySelector<HTMLInputElement>('[aria-label="Интервал повтора"]')!.value = '2'; selects[0]!.value = 'week';
+    await form.onsubmit!(new Event('submit', { cancelable: true }) as SubmitEvent);
+    expect(form.querySelector('[role="alert"]')!.textContent).toContain('горизонт «День»'); expect(storage.files.size).toBe(0);
+  });
   it('saves a typed colored label without requiring an extra add click', async () => {
     const { store, dashboard } = setup(); await dashboard.refresh(); dashboard.taskDialog();
     const form = document.querySelector<HTMLFormElement>('.dl-form')!;

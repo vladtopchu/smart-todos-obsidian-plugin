@@ -3,7 +3,7 @@ export type Screen = Scope | 'goals' | 'habits' | 'stats';
 export type LabelColor = 'gray' | 'red' | 'orange' | 'green' | 'blue' | 'purple';
 export interface TaskLabel { name: string; color: LabelColor }
 export type Priority = 'normal' | 'high' | 'low';
-export type Recurrence = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly';
+export type Recurrence = 'none' | 'daily' | 'weekdays' | 'weekly' | 'monthly' | 'yearly';
 export interface Task {
   id: string;
   path: string;
@@ -14,6 +14,7 @@ export interface Task {
   scope: Scope;
   priority: Priority;
   recurrence: Recurrence;
+  recurrenceInterval?: number;
   goal: string;
   labels: TaskLabel[];
   due: string;

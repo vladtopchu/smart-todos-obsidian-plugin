@@ -47,15 +47,25 @@ export function stepPeriod(value: string, scope: Scope, offset: number): string 
   else date.setFullYear(date.getFullYear() + offset);
   return dateKey(date);
 }
-export function nextOccurrence(value: string, recurrence: Recurrence): string {
-  if (recurrence === 'monthly') {
+export function recurrenceInterval(value: unknown = 1): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) throw new Error('Интервал повтора должен быть целым числом от 1');
+  return value;
+}
+export function nextOccurrence(value: string, recurrence: Recurrence, interval = 1): string {
+  recurrenceInterval(interval);
+  let next: string;
+  if (recurrence === 'monthly' || recurrence === 'yearly') {
     const date = parseDate(value); const day = date.getDate();
-    date.setDate(1); date.setMonth(date.getMonth() + 1);
+    date.setDate(1);
+    if (recurrence === 'monthly') date.setMonth(date.getMonth() + interval);
+    else date.setFullYear(date.getFullYear() + interval);
     const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-    date.setDate(Math.min(day, last)); return dateKey(date);
+    date.setDate(Math.min(day, last)); next = dateKey(date);
+  } else {
+    next = shiftDay(value, recurrence === 'weekly' ? interval * 7 : recurrence === 'daily' ? interval : 1);
+    while (recurrence === 'weekdays' && [0, 6].includes(parseDate(next).getDay())) next = shiftDay(next, 1);
   }
-  let next = shiftDay(value, recurrence === 'weekly' ? 7 : 1);
-  while (recurrence === 'weekdays' && [0, 6].includes(parseDate(next).getDay())) next = shiftDay(next, 1);
+  if (!validDate(next)) throw new Error('Интервал повтора выходит за допустимый диапазон дат');
   return next;
 }
 export function displayDate(value: string, options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'long' }): string {

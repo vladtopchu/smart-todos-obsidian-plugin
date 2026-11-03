@@ -56,7 +56,7 @@ var init_manifest = __esm({
     manifest_default = {
       id: "smart-todos",
       name: "Smart Todo",
-      version: "1.0.6",
+      version: "1.0.7",
       minAppVersion: "1.8.0",
       description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
       author: "Personal build for Vlad",
@@ -217,18 +217,27 @@ function stepPeriod(value, scope, offset) {
   else date.setFullYear(date.getFullYear() + offset);
   return dateKey(date);
 }
-function nextOccurrence(value, recurrence) {
-  if (recurrence === "monthly") {
+function recurrenceInterval(value = 1) {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) throw new Error("\u0418\u043D\u0442\u0435\u0440\u0432\u0430\u043B \u043F\u043E\u0432\u0442\u043E\u0440\u0430 \u0434\u043E\u043B\u0436\u0435\u043D \u0431\u044B\u0442\u044C \u0446\u0435\u043B\u044B\u043C \u0447\u0438\u0441\u043B\u043E\u043C \u043E\u0442 1");
+  return value;
+}
+function nextOccurrence(value, recurrence, interval = 1) {
+  recurrenceInterval(interval);
+  let next;
+  if (recurrence === "monthly" || recurrence === "yearly") {
     const date = parseDate(value);
     const day = date.getDate();
     date.setDate(1);
-    date.setMonth(date.getMonth() + 1);
+    if (recurrence === "monthly") date.setMonth(date.getMonth() + interval);
+    else date.setFullYear(date.getFullYear() + interval);
     const last = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
     date.setDate(Math.min(day, last));
-    return dateKey(date);
+    next = dateKey(date);
+  } else {
+    next = shiftDay(value, recurrence === "weekly" ? interval * 7 : recurrence === "daily" ? interval : 1);
+    while (recurrence === "weekdays" && [0, 6].includes(parseDate(next).getDay())) next = shiftDay(next, 1);
   }
-  let next = shiftDay(value, recurrence === "weekly" ? 7 : 1);
-  while (recurrence === "weekdays" && [0, 6].includes(parseDate(next).getDay())) next = shiftDay(next, 1);
+  if (!validDate(next)) throw new Error("\u0418\u043D\u0442\u0435\u0440\u0432\u0430\u043B \u043F\u043E\u0432\u0442\u043E\u0440\u0430 \u0432\u044B\u0445\u043E\u0434\u0438\u0442 \u0437\u0430 \u0434\u043E\u043F\u0443\u0441\u0442\u0438\u043C\u044B\u0439 \u0434\u0438\u0430\u043F\u0430\u0437\u043E\u043D \u0434\u0430\u0442");
   return next;
 }
 function displayDate(value, options = { day: "numeric", month: "long" }) {
@@ -6752,7 +6761,8 @@ ${doc.body}`;
       initialScheduled: validDate(d.initialScheduled) ? d.initialScheduled : (_c = (_b = history.find((h) => h.type === "moved" && validDate(h.from))) == null ? void 0 : _b.from) != null ? _c : d.scheduled,
       scope: pick(d.scope, ["day", "week", "month", "year"], "day"),
       priority: pick(d.priority, ["normal", "high", "low"], "normal"),
-      recurrence: pick(d.recurrence, ["none", "daily", "weekdays", "weekly", "monthly"], "none"),
+      recurrence: pick(d.recurrence, ["none", "daily", "weekdays", "weekly", "monthly", "yearly"], "none"),
+      recurrenceInterval: recurrenceInterval(d.recurrenceInterval),
       goal: str(d.goal),
       labels: normalizeLabels(d.labels),
       due: validDate(d.due) ? d.due : "",
@@ -6796,11 +6806,13 @@ ${doc.body}`;
     const title = singleLine(input2.title);
     if (!title) throw new Error("\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u0447\u0438");
     if (!validDate(input2.scheduled) || input2.due && !validDate(input2.due)) throw new Error("\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u0434\u0430\u0442\u0443");
+    const interval = recurrenceInterval(input2.recurrenceInterval);
+    if (input2.recurrence && input2.recurrence !== "none") nextOccurrence(input2.scheduled, input2.recurrence, interval);
     return this.serial(async () => {
       var _a, _b, _c, _d, _e, _f, _g;
       const id = newId();
       const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: entityType("task"), id, title, status: "open", scheduled: input2.scheduled, initialScheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", goal: (_d = input2.goal) != null ? _d : "", labels: normalizeLabels(input2.labels), due: (_e = input2.due) != null ? _e : "", created: this.now(), createdAt: this.nextCreationTime(), completed: "", history: [] };
+      const data = { type: entityType("task"), id, title, status: "open", scheduled: input2.scheduled, initialScheduled: input2.scheduled, scope: (_a = input2.scope) != null ? _a : "day", priority: (_b = input2.priority) != null ? _b : "normal", recurrence: (_c = input2.recurrence) != null ? _c : "none", recurrenceInterval: interval, goal: (_d = input2.goal) != null ? _d : "", labels: normalizeLabels(input2.labels), due: (_e = input2.due) != null ? _e : "", created: this.now(), createdAt: this.nextCreationTime(), completed: "", history: [] };
       await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- smart-todo:task -->
 
 ${(_g = (_f = input2.description) == null ? void 0 : _f.trim()) != null ? _g : ""}
@@ -6817,6 +6829,8 @@ ${(_g = (_f = input2.description) == null ? void 0 : _f.trim()) != null ? _g : "
       if (!Object.keys(patch).length) return text;
       const next = { ...current, ...patch };
       if (!singleLine(next.title) || !validDate(next.scheduled) || next.due && !validDate(next.due)) throw new Error("\u041F\u0440\u043E\u0432\u0435\u0440\u044C\u0442\u0435 \u043D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u0438 \u0434\u0430\u0442\u044B");
+      const interval = recurrenceInterval(next.recurrenceInterval);
+      if (next.recurrence !== "none") nextOccurrence(next.scheduled, next.recurrence, interval);
       for (const [key, value] of Object.entries(patch)) if (!["path", "id", "description"].includes(key)) doc.data[key] = value;
       doc.data.title = singleLine(next.title);
       doc.data.status = next.status;
@@ -6842,7 +6856,7 @@ ${doc.body}`;
       const today = this.now();
       if (status === "done" && task.recurrence !== "none") {
         if (task.scheduled > today || task.history.some((h) => h.type === "completed" && h.date === today)) return {};
-        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: "open", completed: "", history: [...task.history, { type: "completed", date: today, from: task.scheduled, at: this.clock().toISOString() }] };
+        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence, task.recurrenceInterval), status: "open", completed: "", history: [...task.history, { type: "completed", date: today, from: task.scheduled, at: this.clock().toISOString() }] };
       }
       return { status, completed: status === "done" ? today : "", history: [...task.history, { type: status === "done" ? "completed" : status === "cancelled" ? "cancelled" : "reopened", date: today, at: this.clock().toISOString() }] };
     }));
@@ -7107,7 +7121,16 @@ function analyzeHabit(habit, scope, selected, today) {
 
 // src/ui/dashboard.ts
 var SCOPES = { day: "\u0414\u0435\u043D\u044C", week: "\u041D\u0435\u0434\u0435\u043B\u044F", month: "\u041C\u0435\u0441\u044F\u0446", year: "\u0413\u043E\u0434" };
-var REPEATS = { none: "\u0411\u0435\u0437 \u043F\u043E\u0432\u0442\u043E\u0440\u0430", daily: "\u041A\u0430\u0436\u0434\u044B\u0439 \u0434\u0435\u043D\u044C", weekdays: "\u041F\u043E \u0431\u0443\u0434\u043D\u044F\u043C", weekly: "\u0420\u0430\u0437 \u0432 \u043D\u0435\u0434\u0435\u043B\u044E", monthly: "\u0420\u0430\u0437 \u0432 \u043C\u0435\u0441\u044F\u0446" };
+var REPEATS = { none: "\u0411\u0435\u0437 \u043F\u043E\u0432\u0442\u043E\u0440\u0430", daily: "\u041A\u0430\u0436\u0434\u044B\u0439 \u0434\u0435\u043D\u044C", weekdays: "\u041F\u043E \u0431\u0443\u0434\u043D\u044F\u043C", weekly: "\u0420\u0430\u0437 \u0432 \u043D\u0435\u0434\u0435\u043B\u044E", monthly: "\u0420\u0430\u0437 \u0432 \u043C\u0435\u0441\u044F\u0446", yearly: "\u0420\u0430\u0437 \u0432 \u0433\u043E\u0434" };
+var REPEAT_UNITS = { daily: "\u0414\u043D\u0438", weekly: "\u041D\u0435\u0434\u0435\u043B\u0438", monthly: "\u041C\u0435\u0441\u044F\u0446\u044B", yearly: "\u0413\u043E\u0434\u044B" };
+function repeatLabel(task) {
+  var _a;
+  const n = (_a = task.recurrenceInterval) != null ? _a : 1;
+  if (n === 1 || task.recurrence === "none" || task.recurrence === "weekdays") return REPEATS[task.recurrence];
+  const forms = { daily: ["\u0434\u0435\u043D\u044C", "\u0434\u043D\u044F", "\u0434\u043D\u0435\u0439"], weekly: ["\u043D\u0435\u0434\u0435\u043B\u044E", "\u043D\u0435\u0434\u0435\u043B\u0438", "\u043D\u0435\u0434\u0435\u043B\u044C"], monthly: ["\u043C\u0435\u0441\u044F\u0446", "\u043C\u0435\u0441\u044F\u0446\u0430", "\u043C\u0435\u0441\u044F\u0446\u0435\u0432"], yearly: ["\u0433\u043E\u0434", "\u0433\u043E\u0434\u0430", "\u043B\u0435\u0442"] };
+  const plural = new Intl.PluralRules("ru").select(n);
+  return `\u0420\u0430\u0437 \u0432 ${n} ${forms[task.recurrence][plural === "one" ? 0 : plural === "few" ? 1 : 2]}`;
+}
 var PRIORITIES = { high: "\u0412\u044B\u0441\u043E\u043A\u0438\u0439", normal: "\u041E\u0431\u044B\u0447\u043D\u044B\u0439", low: "\u041D\u0438\u0437\u043A\u0438\u0439" };
 var WEEKDAYS = ["\u041F\u043D", "\u0412\u0442", "\u0421\u0440", "\u0427\u0442", "\u041F\u0442", "\u0421\u0431", "\u0412\u0441"];
 var CAP = (s) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -7379,7 +7402,8 @@ var Dashboard = class {
   }
   quickAdd() {
     const form = el("form", "dl-quick-add");
-    const plus = icon("plus");
+    const more = button("\u041F\u043E\u043B\u043D\u043E\u0435 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u0447\u0438", () => this.taskDialog(), "dl-icon-button dl-quick-more", "dots");
+    more.title = "\u041F\u043E\u043B\u043D\u043E\u0435 \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u0435 \u0437\u0430\u0434\u0430\u0447\u0438";
     const title = input(this.draft, "text", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443");
     title.dataset.focus = "quick";
     title.setAttribute("aria-label", "\u041D\u0430\u0437\u0432\u0430\u043D\u0438\u0435 \u043D\u043E\u0432\u043E\u0439 \u0437\u0430\u0434\u0430\u0447\u0438");
@@ -7391,7 +7415,7 @@ var Dashboard = class {
     submit.type = "submit";
     submit.setAttribute("aria-label", "\u0414\u043E\u0431\u0430\u0432\u0438\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443");
     submit.append(icon("arrow"));
-    form.append(plus, title, submit);
+    form.append(more, title, submit);
     form.onsubmit = async (event) => {
       var _a;
       event.preventDefault();
@@ -7437,7 +7461,7 @@ var Dashboard = class {
     }
     if (task.recurrence !== "none") {
       const repeat = el("span", "dl-task-repeat");
-      repeat.append(icon("repeat"), el("span", "", REPEATS[task.recurrence]));
+      repeat.append(icon("repeat"), el("span", "", repeatLabel(task)));
       metadata.append(repeat);
     }
     if (showDate || task.scheduled !== this.selected) metadata.append(el("span", "", `${displayDate(task.scheduled)}${task.scope !== "day" ? ` \xB7 ${SCOPES[task.scope]}` : ""}`));
@@ -7698,28 +7722,45 @@ var Dashboard = class {
   }
   taskDialog(task, goalId) {
     this.host.dialog(task ? "\u0420\u0435\u0434\u0430\u043A\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u0437\u0430\u0434\u0430\u0447\u0443" : "\u041D\u043E\u0432\u0430\u044F \u0437\u0430\u0434\u0430\u0447\u0430", (body, close) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k, _l;
       const form = el("form", "dl-form");
       const title = input((_a = task == null ? void 0 : task.title) != null ? _a : this.draft, "text", "\u041D\u0430\u043F\u0440\u0438\u043C\u0435\u0440, \u043D\u0430\u0431\u0440\u043E\u0441\u0430\u0442\u044C \u043F\u043B\u0430\u043D \u043F\u0440\u043E\u0435\u043A\u0442\u0430");
       title.required = true;
       title.maxLength = 500;
       const scheduled = input((_b = task == null ? void 0 : task.scheduled) != null ? _b : this.selected, "date");
       scheduled.required = true;
-      const scope = select(SCOPES, (_c = task == null ? void 0 : task.scope) != null ? _c : this.taskScope());
-      const priority = select(PRIORITIES, (_d = task == null ? void 0 : task.priority) != null ? _d : "normal");
-      const repeat = select(REPEATS, (_e = task == null ? void 0 : task.recurrence) != null ? _e : "none");
+      const customRepeat = ((_c = task == null ? void 0 : task.recurrenceInterval) != null ? _c : 1) > 1 && (task == null ? void 0 : task.recurrence) !== "none" && (task == null ? void 0 : task.recurrence) !== "weekdays";
+      const scope = select(SCOPES, (_d = task == null ? void 0 : task.scope) != null ? _d : this.taskScope());
+      const priority = select(PRIORITIES, (_e = task == null ? void 0 : task.priority) != null ? _e : "normal");
+      const repeat = select({ ...REPEATS, custom: "\u0421\u0432\u043E\u0439 \u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B\u2026" }, customRepeat ? "custom" : (_f = task == null ? void 0 : task.recurrence) != null ? _f : "none");
+      const interval = input(String((_g = task == null ? void 0 : task.recurrenceInterval) != null ? _g : 1), "number");
+      interval.min = "1";
+      interval.step = "1";
+      interval.inputMode = "numeric";
+      interval.setAttribute("aria-label", "\u0418\u043D\u0442\u0435\u0440\u0432\u0430\u043B \u043F\u043E\u0432\u0442\u043E\u0440\u0430");
+      const unit = select(REPEAT_UNITS, (task == null ? void 0 : task.recurrence) && task.recurrence in REPEAT_UNITS ? task.recurrence : "daily");
+      unit.setAttribute("aria-label", "\u0415\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B\u0430");
+      const intervalFields = el("div", "dl-repeat-interval");
+      intervalFields.append(field("\u0418\u043D\u0442\u0435\u0440\u0432\u0430\u043B", interval), field("\u0415\u0434\u0438\u043D\u0438\u0446\u0430 \u0438\u043D\u0442\u0435\u0440\u0432\u0430\u043B\u0430", unit));
+      const updateRepeat = () => {
+        intervalFields.hidden = repeat.value !== "custom";
+        interval.disabled = unit.disabled = intervalFields.hidden;
+        interval.required = !intervalFields.hidden;
+      };
+      repeat.onchange = updateRepeat;
+      updateRepeat();
       const goals = { "": "\u0411\u0435\u0437 \u043F\u0440\u0438\u0432\u044F\u0437\u043A\u0438 \u043A \u0446\u0435\u043B\u0438" };
       this.data.goals.filter((g) => g.status !== "archived" || g.id === (task == null ? void 0 : task.goal)).forEach((g) => {
         goals[g.id] = g.title;
       });
-      const goal = select(goals, (_g = (_f = task == null ? void 0 : task.goal) != null ? _f : goalId) != null ? _g : "");
-      const due = input((_h = task == null ? void 0 : task.due) != null ? _h : "", "date");
-      const notes = textarea((_i = task == null ? void 0 : task.description) != null ? _i : "", "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0438 \u0441\u0441\u044B\u043B\u043A\u0438. \u041F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F Markdown.");
+      const goal = select(goals, (_i = (_h = task == null ? void 0 : task.goal) != null ? _h : goalId) != null ? _i : "");
+      const due = input((_j = task == null ? void 0 : task.due) != null ? _j : "", "date");
+      const notes = textarea((_k = task == null ? void 0 : task.description) != null ? _k : "", "\u041E\u043F\u0438\u0441\u0430\u043D\u0438\u0435 \u0438 \u0441\u0441\u044B\u043B\u043A\u0438. \u041F\u043E\u0434\u0434\u0435\u0440\u0436\u0438\u0432\u0430\u0435\u0442\u0441\u044F Markdown.");
       const grid = el("div", "dl-form-grid");
       grid.append(field("\u0414\u0430\u0442\u0430 \u043F\u043B\u0430\u043D\u0430", scheduled), field("\u0413\u043E\u0440\u0438\u0437\u043E\u043D\u0442", scope), field("\u041F\u0440\u0438\u043E\u0440\u0438\u0442\u0435\u0442", priority), field("\u041F\u043E\u0432\u0442\u043E\u0440\u0435\u043D\u0438\u0435", repeat), field("\u0421\u0440\u043E\u043A (\u043D\u0435\u043E\u0431\u044F\u0437\u0430\u0442\u0435\u043B\u044C\u043D\u043E)", due), field("\u0426\u0435\u043B\u044C", goal));
-      const labels = ((_j = task == null ? void 0 : task.labels) != null ? _j : []).map((label) => ({ ...label }));
+      const labels = ((_l = task == null ? void 0 : task.labels) != null ? _l : []).map((label) => ({ ...label }));
       const labelEditor = this.labelsEditor(labels);
-      form.append(field("\u0417\u0430\u0434\u0430\u0447\u0430", title), grid, labelEditor.element, field("\u0417\u0430\u043C\u0435\u0442\u043A\u0438", notes));
+      form.append(field("\u0417\u0430\u0434\u0430\u0447\u0430", title), grid, intervalFields, labelEditor.element, field("\u0417\u0430\u043C\u0435\u0442\u043A\u0438", notes));
       if ((task == null ? void 0 : task.recurrence) !== "none" || !task) form.append(el("p", "dl-form-hint", "\u041F\u0440\u0438 \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u0438\u0438 \u043F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0449\u0430\u044F\u0441\u044F \u0437\u0430\u0434\u0430\u0447\u0430 \u0437\u0430\u043F\u0438\u0448\u0435\u0442 \u0440\u0435\u0437\u0443\u043B\u044C\u0442\u0430\u0442 \u0438 \u043F\u043E\u043B\u0443\u0447\u0438\u0442 \u0441\u043B\u0435\u0434\u0443\u044E\u0449\u0443\u044E \u0434\u0430\u0442\u0443. \u041F\u043E\u0432\u0442\u043E\u0440 \u0434\u043E\u0441\u0442\u0443\u043F\u0435\u043D \u0442\u043E\u043B\u044C\u043A\u043E \u0434\u043B\u044F \u0437\u0430\u0434\u0430\u0447 \u0434\u043D\u044F."));
       if (task == null ? void 0 : task.history.length) {
         const history = el("details", "dl-occurrences");
@@ -7733,7 +7774,7 @@ var Dashboard = class {
       this.formActions(form, close, async () => {
         if (repeat.value !== "none" && scope.value !== "day") throw new Error("\u041F\u043E\u0432\u0442\u043E\u0440\u044F\u044E\u0449\u0438\u0435\u0441\u044F \u0437\u0430\u0434\u0430\u0447\u0438 \u0434\u043E\u043B\u0436\u043D\u044B \u0438\u043C\u0435\u0442\u044C \u0433\u043E\u0440\u0438\u0437\u043E\u043D\u0442 \xAB\u0414\u0435\u043D\u044C\xBB");
         labelEditor.commit();
-        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value, priority: priority.value, recurrence: repeat.value, goal: goal.value, labels, due: due.value, description: notes.value };
+        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value, priority: priority.value, recurrence: repeat.value === "custom" ? unit.value : repeat.value, recurrenceInterval: repeat.value === "custom" ? interval.valueAsNumber : 1, goal: goal.value, labels, due: due.value, description: notes.value };
         if (task) await this.store.updateTask(task.path, values);
         else {
           await this.store.createTask(values);

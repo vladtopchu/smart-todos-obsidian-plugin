@@ -15,7 +15,15 @@ export interface DashboardHost {
   setTasksOnly?(enabled: boolean): void;
 }
 const SCOPES: Record<Scope, string> = { day: 'День', week: 'Неделя', month: 'Месяц', year: 'Год' };
-const REPEATS: Record<Recurrence, string> = { none: 'Без повтора', daily: 'Каждый день', weekdays: 'По будням', weekly: 'Раз в неделю', monthly: 'Раз в месяц' };
+const REPEATS: Record<Recurrence, string> = { none: 'Без повтора', daily: 'Каждый день', weekdays: 'По будням', weekly: 'Раз в неделю', monthly: 'Раз в месяц', yearly: 'Раз в год' };
+const REPEAT_UNITS = { daily: 'Дни', weekly: 'Недели', monthly: 'Месяцы', yearly: 'Годы' };
+function repeatLabel(task: Task): string {
+  const n = task.recurrenceInterval ?? 1;
+  if (n === 1 || task.recurrence === 'none' || task.recurrence === 'weekdays') return REPEATS[task.recurrence];
+  const forms = { daily: ['день', 'дня', 'дней'], weekly: ['неделю', 'недели', 'недель'], monthly: ['месяц', 'месяца', 'месяцев'], yearly: ['год', 'года', 'лет'] };
+  const plural = new Intl.PluralRules('ru').select(n);
+  return `Раз в ${n} ${forms[task.recurrence][plural === 'one' ? 0 : plural === 'few' ? 1 : 2]}`;
+}
 const PRIORITIES: Record<Priority, string> = { high: 'Высокий', normal: 'Обычный', low: 'Низкий' };
 const WEEKDAYS = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const CAP = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -172,8 +180,8 @@ export class Dashboard {
     columns.append(taskColumn, rail); page.append(columns); return page;
   }
   private quickAdd(): HTMLElement {
-    const form = el('form', 'dl-quick-add'); const plus = icon('plus'); const title = input(this.draft, 'text', 'Добавить задачу'); title.dataset.focus = 'quick'; title.setAttribute('aria-label', 'Название новой задачи'); title.oninput = () => { this.draft = title.value; }; title.maxLength = 500;
-    const submit = el('button', 'dl-quick-submit'); submit.type = 'submit'; submit.setAttribute('aria-label', 'Добавить задачу'); submit.append(icon('arrow')); form.append(plus, title, submit);
+    const form = el('form', 'dl-quick-add'); const more = button('Полное создание задачи', () => this.taskDialog(), 'dl-icon-button dl-quick-more', 'dots'); more.title = 'Полное создание задачи'; const title = input(this.draft, 'text', 'Добавить задачу'); title.dataset.focus = 'quick'; title.setAttribute('aria-label', 'Название новой задачи'); title.oninput = () => { this.draft = title.value; }; title.maxLength = 500;
+    const submit = el('button', 'dl-quick-submit'); submit.type = 'submit'; submit.setAttribute('aria-label', 'Добавить задачу'); submit.append(icon('arrow')); form.append(more, title, submit);
     form.onsubmit = async event => {
       event.preventDefault(); const value = title.value.trim(); if (!value || submit.disabled) return; submit.disabled = true;
       try { await this.store.createTask({ title: value, scheduled: this.selected, scope: this.taskScope() }); this.draft = ''; await this.refresh(); this.root.querySelector<HTMLInputElement>('[data-focus="quick"]')?.focus(); }
@@ -190,7 +198,7 @@ export class Dashboard {
     if (task.priority === 'high') metadata.append(el('span', 'dl-tag dl-tag-priority', '↑ Высокий приоритет'));
     if (task.priority === 'low') metadata.append(el('span', 'dl-tag', '↓ Низкий приоритет'));
     const goal = this.data.goals.find(g => g.id === task.goal); if (goal) { const tag = el('span', 'dl-task-goal'); tag.append(icon('target'), el('span', '', goal.title)); metadata.append(tag); }
-    if (task.recurrence !== 'none') { const repeat = el('span', 'dl-task-repeat'); repeat.append(icon('repeat'), el('span', '', REPEATS[task.recurrence])); metadata.append(repeat); }
+    if (task.recurrence !== 'none') { const repeat = el('span', 'dl-task-repeat'); repeat.append(icon('repeat'), el('span', '', repeatLabel(task))); metadata.append(repeat); }
     if (showDate || task.scheduled !== this.selected) metadata.append(el('span', '', `${displayDate(task.scheduled)}${task.scope !== 'day' ? ` · ${SCOPES[task.scope]}` : ''}`));
     if (task.due) metadata.append(el('span', task.due < dateKey() && task.status === 'open' ? 'dl-late' : '', `До ${displayDate(task.due)}`));
     if (task.status === 'open' && task.scheduled < dateKey()) metadata.append(el('span', 'dl-moved', `В плане с ${displayDate(task.scheduled)}`));
@@ -329,17 +337,23 @@ export class Dashboard {
     this.host.dialog(task ? 'Редактировать задачу' : 'Новая задача', (body, close) => {
       const form = el('form', 'dl-form'); const title = input(task?.title ?? this.draft, 'text', 'Например, набросать план проекта'); title.required = true; title.maxLength = 500;
       const scheduled = input(task?.scheduled ?? this.selected, 'date'); scheduled.required = true;
-      const scope = select(SCOPES, task?.scope ?? this.taskScope()); const priority = select(PRIORITIES, task?.priority ?? 'normal'); const repeat = select(REPEATS, task?.recurrence ?? 'none');
+      const customRepeat = (task?.recurrenceInterval ?? 1) > 1 && task?.recurrence !== 'none' && task?.recurrence !== 'weekdays';
+      const scope = select(SCOPES, task?.scope ?? this.taskScope()); const priority = select(PRIORITIES, task?.priority ?? 'normal'); const repeat = select({ ...REPEATS, custom: 'Свой интервал…' }, customRepeat ? 'custom' : task?.recurrence ?? 'none');
+      const interval = input(String(task?.recurrenceInterval ?? 1), 'number'); interval.min = '1'; interval.step = '1'; interval.inputMode = 'numeric'; interval.setAttribute('aria-label', 'Интервал повтора');
+      const unit = select(REPEAT_UNITS, task?.recurrence && task.recurrence in REPEAT_UNITS ? task.recurrence : 'daily'); unit.setAttribute('aria-label', 'Единица интервала');
+      const intervalFields = el('div', 'dl-repeat-interval'); intervalFields.append(field('Интервал', interval), field('Единица интервала', unit));
+      const updateRepeat = () => { intervalFields.hidden = repeat.value !== 'custom'; interval.disabled = unit.disabled = intervalFields.hidden; interval.required = !intervalFields.hidden; };
+      repeat.onchange = updateRepeat; updateRepeat();
       const goals: Record<string, string> = { '': 'Без привязки к цели' }; this.data.goals.filter(g => g.status !== 'archived' || g.id === task?.goal).forEach(g => { goals[g.id] = g.title; });
       const goal = select(goals, task?.goal ?? goalId ?? ''); const due = input(task?.due ?? '', 'date'); const notes = textarea(task?.description ?? '', 'Описание и ссылки. Поддерживается Markdown.');
       const grid = el('div', 'dl-form-grid'); grid.append(field('Дата плана', scheduled), field('Горизонт', scope), field('Приоритет', priority), field('Повторение', repeat), field('Срок (необязательно)', due), field('Цель', goal)); const labels = (task?.labels ?? []).map(label => ({ ...label })); const labelEditor = this.labelsEditor(labels);
-      form.append(field('Задача', title), grid, labelEditor.element, field('Заметки', notes));
+      form.append(field('Задача', title), grid, intervalFields, labelEditor.element, field('Заметки', notes));
       if (task?.recurrence !== 'none' || !task) form.append(el('p', 'dl-form-hint', 'При выполнении повторяющаяся задача запишет результат и получит следующую дату. Повтор доступен только для задач дня.'));
       if (task?.history.length) { const history = el('details', 'dl-occurrences'); history.append(el('summary', '', 'История задачи')); task.history.slice().reverse().forEach(h => history.append(el('p', '', `${h.at ? new Date(h.at).toLocaleString('ru-RU') : displayDate(h.date)} · ${h.type === 'moved' ? `перенос с ${h.from ?? '—'} на ${h.to ?? '—'}${h.automatic ? ' · автоматически' : ''}` : h.type === 'completed' ? 'выполнена' : h.type === 'cancelled' ? 'отменена' : 'возвращена в работу'}`))); form.append(history); }
       this.formActions(form, close, async () => {
         if (repeat.value !== 'none' && scope.value !== 'day') throw new Error('Повторяющиеся задачи должны иметь горизонт «День»');
         labelEditor.commit();
-        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value as Scope, priority: priority.value as Priority, recurrence: repeat.value as Recurrence, goal: goal.value, labels, due: due.value, description: notes.value };
+        const values = { title: title.value, scheduled: scheduled.value, scope: scope.value as Scope, priority: priority.value as Priority, recurrence: (repeat.value === 'custom' ? unit.value : repeat.value) as Recurrence, recurrenceInterval: repeat.value === 'custom' ? interval.valueAsNumber : 1, goal: goal.value, labels, due: due.value, description: notes.value };
         if (task) await this.store.updateTask(task.path, values); else { await this.store.createTask(values); this.draft = ''; }
       }, task ? 'Сохранить' : 'Добавить задачу', task ? button('Markdown', () => { close(); void this.action(() => this.host.openFile(task.path)); }, 'dl-button dl-button-secondary', 'file') : undefined);
       body.append(form); window.setTimeout(() => title.focus(), 20);

@@ -1,4 +1,4 @@
-import { dateKey, habitDue, nextOccurrence, periodKey, validDate } from './dates';
+import { dateKey, habitDue, nextOccurrence, periodKey, recurrenceInterval, validDate } from './dates';
 import type { Codec, Goal, Habit, Settings, Snapshot, Storage, Task, Scope } from './types';
 import { newId } from './ids';
 import { normalizeLabels } from './labels';
@@ -58,7 +58,8 @@ export class PlannerStore {
       id: str(d.id), path, title: line?.[2] ?? str(d.title, 'Без названия'), status,
       scheduled: d.scheduled, initialScheduled: validDate(d.initialScheduled) ? d.initialScheduled : history.find(h => h.type === 'moved' && validDate(h.from))?.from ?? d.scheduled, scope: pick(d.scope, ['day', 'week', 'month', 'year'], 'day'),
       priority: pick(d.priority, ['normal', 'high', 'low'], 'normal'),
-      recurrence: pick(d.recurrence, ['none', 'daily', 'weekdays', 'weekly', 'monthly'], 'none'),
+      recurrence: pick(d.recurrence, ['none', 'daily', 'weekdays', 'weekly', 'monthly', 'yearly'], 'none'),
+      recurrenceInterval: recurrenceInterval(d.recurrenceInterval),
       goal: str(d.goal), labels: normalizeLabels(d.labels), due: validDate(d.due) ? d.due : '', created: validDate(d.created) ? d.created : d.scheduled,
       createdAt,
       completed: status === 'done' ? (validDate(d.completed) ? d.completed : d.scheduled) : '',
@@ -96,9 +97,11 @@ export class PlannerStore {
     const title = singleLine(input.title);
     if (!title) throw new Error('Добавьте название задачи');
     if (!validDate(input.scheduled) || (input.due && !validDate(input.due))) throw new Error('Проверьте дату');
+    const interval = recurrenceInterval(input.recurrenceInterval);
+    if (input.recurrence && input.recurrence !== 'none') nextOccurrence(input.scheduled, input.recurrence, interval);
     return this.serial(async () => {
       const id = newId(); const path = `${this.settings.root}/tasks/${id}.md`;
-      const data = { type: entityType('task'), id, title, status: 'open', scheduled: input.scheduled, initialScheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', goal: input.goal ?? '', labels: normalizeLabels(input.labels), due: input.due ?? '', created: this.now(), createdAt: this.nextCreationTime(), completed: '', history: [] };
+      const data = { type: entityType('task'), id, title, status: 'open', scheduled: input.scheduled, initialScheduled: input.scheduled, scope: input.scope ?? 'day', priority: input.priority ?? 'normal', recurrence: input.recurrence ?? 'none', recurrenceInterval: interval, goal: input.goal ?? '', labels: normalizeLabels(input.labels), due: input.due ?? '', created: this.now(), createdAt: this.nextCreationTime(), completed: '', history: [] };
       await this.storage.create(path, this.encode({ data, body: `- [ ] ${title} <!-- smart-todo:task -->\n\n${input.description?.trim() ?? ''}\n` }));
       return path;
     });
@@ -110,6 +113,8 @@ export class PlannerStore {
       if (!Object.keys(patch).length) return text;
       const next = { ...current, ...patch };
       if (!singleLine(next.title) || !validDate(next.scheduled) || (next.due && !validDate(next.due))) throw new Error('Проверьте название и даты');
+      const interval = recurrenceInterval(next.recurrenceInterval);
+      if (next.recurrence !== 'none') nextOccurrence(next.scheduled, next.recurrence, interval);
       for (const [key, value] of Object.entries(patch)) if (!['path', 'id', 'description'].includes(key)) doc.data[key] = value;
       doc.data.title = singleLine(next.title); doc.data.status = next.status;
       doc.data.initialScheduled = current.initialScheduled;
@@ -120,7 +125,7 @@ export class PlannerStore {
       return this.encode(doc);
     });
   }
-  updateTask(path: string, patch: Partial<Pick<Task, 'title' | 'scheduled' | 'due' | 'scope' | 'priority' | 'recurrence' | 'goal' | 'labels' | 'description'>>): Promise<void> {
+  updateTask(path: string, patch: Partial<Pick<Task, 'title' | 'scheduled' | 'due' | 'scope' | 'priority' | 'recurrence' | 'recurrenceInterval' | 'goal' | 'labels' | 'description'>>): Promise<void> {
     return this.serial(() => this.mutateTask(path, task => ({ ...patch, ...(patch.scheduled && patch.scheduled !== task.scheduled ? { history: [...task.history, { type: 'moved' as const, date: this.now(), from: task.scheduled, to: patch.scheduled, at: this.clock().toISOString(), automatic: false }] } : {}) })));
   }
   setTaskStatus(path: string, status: Task['status']): Promise<void> {
@@ -131,7 +136,7 @@ export class PlannerStore {
         // One atomic update: completing a recurring task records the occurrence and advances its date.
         // A queued second click sees the future date and cannot complete the next occurrence.
         if (task.scheduled > today || task.history.some(h => h.type === 'completed' && h.date === today)) return {};
-        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence), status: 'open', completed: '', history: [...task.history, { type: 'completed', date: today, from: task.scheduled, at: this.clock().toISOString() }] };
+        return { scheduled: nextOccurrence(today > task.scheduled ? today : task.scheduled, task.recurrence, task.recurrenceInterval), status: 'open', completed: '', history: [...task.history, { type: 'completed', date: today, from: task.scheduled, at: this.clock().toISOString() }] };
       }
       return { status, completed: status === 'done' ? today : '', history: [...task.history, { type: status === 'done' ? 'completed' : status === 'cancelled' ? 'cancelled' : 'reopened', date: today, at: this.clock().toISOString() }] };
     }));
