@@ -15,18 +15,127 @@ function setup() {
   return { storage, store, root, messages, host, dashboard: new Dashboard(root, store, host) };
 }
 describe('planner UI', () => {
-  it('appends new tasks and preserves row order when priority and completion change', async () => {
+  it('appends new tasks and preserves row order in creation sorting when priority and completion change', async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 10, 1, 12));
     const { store, dashboard, root } = setup();
     const first = await store.createTask({ title: 'First', scheduled: dateKey(), priority: 'low' });
     await store.createTask({ title: 'Second', scheduled: dateKey(), priority: 'high' });
     await dashboard.refresh();
+    root.querySelector<HTMLButtonElement>('[aria-label="Сортировать по созданию"]')!.click();
     const titles = () => [...root.querySelectorAll('.dl-task-title')].map(node => node.textContent);
     expect(titles()).toEqual(['First', 'Second']);
     await store.setTaskStatus(first, 'done');
     await store.createTask({ title: 'Third', scheduled: dateKey() });
     await dashboard.refresh();
     expect(titles()).toEqual(['First', 'Second', 'Third']);
+  });
+  it('defaults to new unfinished, carried unfinished, then completed tasks, preserving creation order inside groups', async () => {
+    const { store, dashboard, root } = setup();
+    const today = dateKey(); const yesterday = shiftDay(today, -1);
+    const oldDone = await store.createTask({ title: 'Late completion', scheduled: yesterday });
+    await store.setTaskStatus(oldDone, 'done');
+    const newDone = await store.createTask({ title: 'Done today', scheduled: today });
+    await store.setTaskStatus(newDone, 'done');
+    await store.createTask({ title: 'Old first', scheduled: shiftDay(today, -5), priority: 'low' });
+    await store.createTask({ title: 'New first', scheduled: today, priority: 'low' });
+    await store.createTask({ title: 'Old second', scheduled: yesterday, priority: 'high' });
+    await store.createTask({ title: 'New second', scheduled: today, priority: 'high' });
+    await store.createTask({ title: 'Future', scheduled: shiftDay(today, 1) });
+    const cancelled = await store.createTask({ title: 'Cancelled', scheduled: today });
+    await store.setTaskStatus(cancelled, 'cancelled');
+    await dashboard.refresh();
+    expect([...root.querySelectorAll('.dl-task-title')].map(node => node.textContent)).toEqual(['New first', 'New second', 'Old first', 'Old second', 'Late completion', 'Done today']);
+    expect(root.querySelector('.dl-overdue-banner')?.textContent).toContain('2');
+    expect(root.querySelector('.dl-task-group-heading')?.textContent).toBe('Выполненные · 2');
+  });
+  it('moves completed tasks to the bottom and restores new and carried tasks to their groups on reopening', async () => {
+    const { store, dashboard, root } = setup();
+    await store.createTask({ title: 'New', scheduled: dateKey() });
+    await store.createTask({ title: 'Old', scheduled: shiftDay(dateKey(), -1) });
+    await store.createTask({ title: 'Another new', scheduled: dateKey() });
+    await dashboard.refresh();
+    const titles = () => [...root.querySelectorAll('.dl-task-title')].map(node => node.textContent);
+    const click = (label: string) => root.querySelector<HTMLInputElement>(`[aria-label="${label}"]`)!.click();
+    click('Выполнить: New');
+    await vi.waitFor(() => expect(titles()).toEqual(['Another new', 'Old', 'New']));
+    click('Выполнить: Old');
+    await vi.waitFor(() => expect(titles()).toEqual(['Another new', 'New', 'Old']));
+    expect(root.querySelector('.dl-overdue-banner')).toBeNull();
+    click('Вернуть в работу: New');
+    await vi.waitFor(() => expect(titles()).toEqual(['New', 'Another new', 'Old']));
+    click('Вернуть в работу: Old');
+    await vi.waitFor(() => expect(root.querySelector('.dl-overdue-banner')).not.toBeNull());
+    expect(titles()).toEqual(['New', 'Another new', 'Old']);
+    expect(root.querySelector('.dl-task-group-heading')).toBeNull();
+  });
+  it('restores the previous display, persists the choice across reopening, and toggles back without writing tasks', async () => {
+    const { store, storage, dashboard, root, host } = setup();
+    const first = await store.createTask({ title: 'Done first', scheduled: dateKey() });
+    await store.setTaskStatus(first, 'done');
+    await store.createTask({ title: 'Old', scheduled: shiftDay(dateKey(), -1) });
+    await store.createTask({ title: 'New', scheduled: dateKey() });
+    let saved = structuredClone(store.settings);
+    let activeStore = store;
+    host.persistSettings = vi.fn(async () => { saved = structuredClone(activeStore.settings); });
+    await dashboard.refresh();
+    const original = [...storage.files]; const process = vi.spyOn(storage, 'process'); const create = vi.spyOn(storage, 'create');
+    const titles = () => [...root.querySelectorAll('.dl-task-title')].map(node => node.textContent);
+    expect(titles()).toEqual(['New', 'Old', 'Done first']);
+    root.querySelector<HTMLButtonElement>('[aria-label="Сортировать по созданию"]')!.click();
+    expect(titles()).toEqual(['Done first', 'New', 'Old']);
+    expect(saved.dayTaskSort).toBe('created'); expect(host.persistSettings).toHaveBeenCalledTimes(1);
+    dashboard.destroy();
+    activeStore = new PlannerStore(storage, codec, saved);
+    const reopened = new Dashboard(root, activeStore, host);
+    await reopened.refresh();
+    expect(titles()).toEqual(['Done first', 'New', 'Old']);
+    root.querySelector<HTMLButtonElement>('[aria-label="Группировать по статусу"]')!.click();
+    expect(titles()).toEqual(['New', 'Old', 'Done first']);
+    expect(saved.dayTaskSort).toBe('status'); expect(host.persistSettings).toHaveBeenCalledTimes(2);
+    expect(process).not.toHaveBeenCalled(); expect(create).not.toHaveBeenCalled(); expect([...storage.files]).toEqual(original);
+  });
+  it('keeps filters, search and hidden completions working with daily grouping', async () => {
+    const { store, dashboard, root } = setup();
+    const done = await store.createTask({ title: 'Match done', scheduled: dateKey() }); await store.setTaskStatus(done, 'done');
+    await store.createTask({ title: 'Other', scheduled: dateKey() });
+    await store.createTask({ title: 'Match old', scheduled: shiftDay(dateKey(), -1) });
+    await store.createTask({ title: 'Match new', scheduled: dateKey() });
+    await dashboard.refresh();
+    const titles = () => [...root.querySelectorAll('.dl-task-title')].map(node => node.textContent);
+    const search = root.querySelector<HTMLInputElement>('[data-focus="search"]')!; search.value = 'Match'; search.dispatchEvent(new Event('input'));
+    expect(titles()).toEqual(['Match new', 'Match old', 'Match done']);
+    store.settings.showCompleted = false; await dashboard.refresh();
+    expect(titles()).toEqual(['Match new', 'Match old']); expect(root.querySelector('.dl-task-group-heading')).toBeNull();
+    root.querySelector<HTMLButtonElement>('.dl-tab[aria-label="Готово"]')!.click();
+    expect(titles()).toEqual(['Match done']); expect(root.querySelector('.dl-task-sort')).toBeNull();
+    root.querySelector<HTMLButtonElement>('.dl-tab[aria-label="В работе"]')!.click();
+    expect(titles()).toEqual(['Match new', 'Match old']); expect(root.querySelector('.dl-task-sort')).toBeNull();
+    root.querySelector<HTMLButtonElement>('.dl-tab[aria-label="Все"]')!.click();
+    expect(root.querySelector('[aria-label="Сортировать по созданию"]')).not.toBeNull();
+  });
+  it('groups tasks on historical and future days while keeping other horizons in their existing order', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 10, 4, 12));
+    const { store, dashboard, root } = setup();
+    const today = dateKey();
+    for (const offset of [-1, 1]) {
+      const selected = shiftDay(today, offset);
+      const done = await store.createTask({ title: `Done ${offset}`, scheduled: selected }); await store.setTaskStatus(done, 'done');
+      await store.createTask({ title: `Open ${offset}`, scheduled: selected });
+    }
+    await dashboard.refresh();
+    const titles = () => [...root.querySelectorAll('.dl-task-title')].map(node => node.textContent);
+    for (const offset of [-1, 1]) {
+      dashboard.navigate('day', shiftDay(today, offset));
+      expect(titles()).toEqual([`Open ${offset}`, `Done ${offset}`]); expect(root.querySelector('.dl-overdue-banner')).toBeNull();
+    }
+    for (const scope of ['week', 'month', 'year'] as const) {
+      dashboard.navigate(scope, today);
+      const expected = (await store.snapshot()).tasks.map(task => task.title);
+      expect(titles()).toEqual(expected); expect(root.querySelector('.dl-task-sort')).toBeNull();
+    }
+    dashboard.navigate('day', today); root.querySelector<HTMLButtonElement>('[aria-label="Сортировать по созданию"]')!.click();
+    dashboard.navigate('week', today); dashboard.navigate('day', today);
+    expect(root.querySelector('[aria-label="Группировать по статусу"]')).not.toBeNull();
   });
   it('follows today across midnight without writing task files and leaves a chosen historical day alone', async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date(2026, 9, 31, 23, 59));

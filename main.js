@@ -56,7 +56,7 @@ var init_manifest = __esm({
     manifest_default = {
       id: "smart-todos",
       name: "Smart Todo",
-      version: "1.0.7",
+      version: "1.0.8",
       minAppVersion: "1.8.0",
       description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
       author: "Personal build for Vlad",
@@ -6710,6 +6710,7 @@ var PlannerStore = class {
     __publicField(this, "queue", Promise.resolve());
     __publicField(this, "lastCreationTime", 0);
     settings.root = normalizeRoot(settings.root);
+    settings.dayTaskSort = settings.dayTaskSort === "created" ? "created" : "status";
     settings.labelPresets = normalizeLabels(settings.labelPresets);
   }
   serial(action) {
@@ -6988,7 +6989,7 @@ period: "${periodKey(scope, date)}"
 };
 
 // src/types.ts
-var DEFAULT_SETTINGS = { root: "_todotracking", showCompleted: true, tasksOnly: false, labelPresets: [] };
+var DEFAULT_SETTINGS = { root: "_todotracking", showCompleted: true, tasksOnly: false, dayTaskSort: "status", labelPresets: [] };
 
 // src/task-view.ts
 var ranks = { day: 0, week: 1, month: 2, year: 3 };
@@ -7362,6 +7363,7 @@ var Dashboard = class {
     };
     taskHeader.append(heading, search);
     taskColumn.append(taskHeader);
+    const toolbar = el("div", "dl-task-toolbar");
     const tabs = el("div", "dl-tabs");
     for (const [key, label] of [["all", "\u0412\u0441\u0435"], ["open", "\u0412 \u0440\u0430\u0431\u043E\u0442\u0435"], ["done", "\u0413\u043E\u0442\u043E\u0432\u043E"]]) {
       const tab = button(label, () => {
@@ -7371,25 +7373,46 @@ var Dashboard = class {
       tab.setAttribute("aria-pressed", String(this.filter === key));
       tabs.append(tab);
     }
-    taskColumn.append(tabs, this.quickAdd());
+    toolbar.append(tabs);
+    if (scope === "day" && this.filter === "all") {
+      const byStatus = this.store.settings.dayTaskSort === "status";
+      const sort = button(byStatus ? "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044E" : "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E \u0441\u0442\u0430\u0442\u0443\u0441\u0443", () => {
+        var _a, _b;
+        this.store.settings.dayTaskSort = byStatus ? "created" : "status";
+        this.render();
+        void ((_b = (_a = this.host).persistSettings) == null ? void 0 : _b.call(_a).catch(() => this.host.notify("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0437\u0430\u0434\u0430\u0447.")));
+      }, "dl-button dl-button-quiet dl-task-sort");
+      sort.dataset.focus = "day-sort";
+      sort.title = byStatus ? "\u0421\u0435\u0439\u0447\u0430\u0441: \u043D\u0435\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u043D\u0430 \u0434\u0435\u043D\u044C, \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439, \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435" : "\u0421\u0435\u0439\u0447\u0430\u0441: \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F \u0432\u043D\u0443\u0442\u0440\u0438 \u0437\u0430\u0434\u0430\u0447 \u0434\u043D\u044F \u0438 \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0445 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439";
+      toolbar.append(sort);
+    }
+    taskColumn.append(toolbar, this.quickAdd());
     const visible = tasks.filter((t) => (this.filter === "all" ? this.store.settings.showCompleted || t.status === "open" : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map((label) => label.name).join(" ")}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
     if (!visible.length) taskColumn.append(this.empty(this.query ? "\u0417\u0430\u0434\u0430\u0447\u0438 \u043D\u0435 \u043D\u0430\u0439\u0434\u0435\u043D\u044B" : "\u041D\u0435\u0442 \u0437\u0430\u0434\u0430\u0447", this.query ? "\u0418\u0437\u043C\u0435\u043D\u0438\u0442\u0435 \u043F\u043E\u0438\u0441\u043A\u043E\u0432\u044B\u0439 \u0437\u0430\u043F\u0440\u043E\u0441." : "\u0414\u043E\u0431\u0430\u0432\u044C\u0442\u0435 \u0437\u0430\u0434\u0430\u0447\u0443 \u0432 \u043F\u043E\u043B\u0435 \u0432\u044B\u0448\u0435."));
     else {
       const carried = visible.filter((task) => carriedTask(task, scope, this.selected, dateKey()));
       const planned = visible.filter((task) => !carriedTask(task, scope, this.selected, dateKey()));
-      const appendList = (items) => {
+      const groupedDay = scope === "day" && this.filter === "all" && this.store.settings.dayTaskSort === "status";
+      const appendList = (items, label = "\u0417\u0430\u0434\u0430\u0447\u0438") => {
         if (!items.length) return;
         const list = el("div", "dl-task-list");
-        list.setAttribute("aria-label", "\u0417\u0430\u0434\u0430\u0447\u0438");
+        list.setAttribute("aria-label", label);
         items.forEach((task) => list.append(this.taskRow(task, scope !== "day")));
         taskColumn.append(list);
       };
-      appendList(planned);
+      appendList(groupedDay ? planned.filter((task) => task.status === "open") : planned);
       if (carried.length) {
         const banner = el("div", "dl-overdue-banner");
         banner.append(el("strong", "", `${scope === "day" ? "\u041D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439" : "\u041D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0438\u0437 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u043F\u0435\u0440\u0438\u043E\u0434\u043E\u0432"} \xB7 ${carried.length}`));
         taskColumn.append(banner);
         appendList(carried);
+      }
+      if (groupedDay) {
+        const done = planned.filter((task) => task.status === "done");
+        if (done.length) {
+          taskColumn.append(el("h3", "dl-task-group-heading", `\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \xB7 ${done.length}`));
+          appendList(done, "\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438");
+        }
       }
     }
     const rail = el("aside", "dl-context-rail");

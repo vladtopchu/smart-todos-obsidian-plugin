@@ -1,7 +1,7 @@
 {
   "id": "smart-todos",
   "name": "Smart Todo",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "minAppVersion": "1.8.0",
   "description": "Календарь, незавершённые задачи, планы, цели и привычки в обычных Markdown-файлах.",
   "author": "Personal build for Vlad",

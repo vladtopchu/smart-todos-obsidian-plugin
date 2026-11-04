@@ -23,6 +23,7 @@ export class PlannerStore {
   private lastCreationTime = 0;
   constructor(readonly storage: Storage, readonly codec: Codec, public settings: Settings, private now = () => dateKey(), private clock = () => new Date()) {
     settings.root = normalizeRoot(settings.root);
+    settings.dayTaskSort = settings.dayTaskSort === 'created' ? 'created' : 'status';
     settings.labelPresets = normalizeLabels(settings.labelPresets);
   }
   private serial<T>(action: () => Promise<T>): Promise<T> {

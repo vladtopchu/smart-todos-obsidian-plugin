@@ -94,6 +94,10 @@
 .dl-input::placeholder { color: var(--dl-muted); }
 .dl-app .dl-search { max-width: 145px; font-size: 10px; padding: 6px 9px; background: var(--dl-bg); }
 .dl-tabs { display: flex; gap: 21px; margin: 0 20px; border-bottom: 1px solid var(--dl-line); }
+.dl-task-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 0 12px; margin: 0 20px; border-bottom: 1px solid var(--dl-line); }
+.dl-task-toolbar .dl-tabs { margin: 0; border-bottom: 0; }
+.dl-app .dl-task-sort { margin-left: auto; min-height: 36px; padding: 6px 0; font-size: 10px; white-space: normal; text-align: right; }
+.dl-app .dl-task-group-heading { margin: 16px 20px 4px; padding-top: 12px; border-top: 1px solid var(--dl-line); color: var(--dl-muted); font-size: 11px; }
 .dl-tab { font-size: 11px !important; padding: 9px 0 11px; background: transparent !important; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--dl-muted) !important; }
 .dl-tab.is-active { color: var(--dl-accent) !important; border-bottom-color: var(--dl-accent); }
 .dl-quick-add { display: flex; align-items: center; gap: 10px; margin: 16px 20px 6px; border: 1px solid var(--dl-line); border-radius: 3px; padding: 8px 10px; color: var(--dl-accent); }
@@ -290,6 +294,7 @@
   .dl-habit-table { min-width: 430px; }
   .dl-task-panel > .dl-section-header { padding-left: 16px; padding-right: 16px; }
   .dl-task-panel .dl-search { max-width: 125px; }
+  .dl-app .dl-task-sort { min-height: 44px; }
   .dl-app .dl-task-title { font-size: 13px !important; }
   .dl-task-row { padding-top: 14px; padding-bottom: 14px; }
   .dl-quick-add > button { min-width: 44px; min-height: 44px; }

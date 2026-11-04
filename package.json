@@ -1,6 +1,6 @@
 {
   "name": "obsidian-smart-todo-vlad",
-  "version": "1.0.7",
+  "version": "1.0.8",
   "private": true,
   "description": "Markdown-first planning, tasks, goals and habits for Obsidian",
   "scripts": {

@@ -47,9 +47,10 @@ export interface Settings {
   root: string;
   showCompleted: boolean;
   tasksOnly: boolean;
+  dayTaskSort: 'status' | 'created';
   labelPresets: TaskLabel[];
 }
-export const DEFAULT_SETTINGS: Settings = { root: '_todotracking', showCompleted: true, tasksOnly: false, labelPresets: [] };
+export const DEFAULT_SETTINGS: Settings = { root: '_todotracking', showCompleted: true, tasksOnly: false, dayTaskSort: 'status', labelPresets: [] };
 export interface Snapshot { tasks: Task[]; goals: Goal[]; habits: Habit[]; warnings: string[] }
 export interface Storage {
   list(): string[] | Promise<string[]>;

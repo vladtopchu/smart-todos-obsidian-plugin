@@ -159,20 +159,41 @@ export class Dashboard {
     const taskHeader = el('div', 'dl-section-header'); const heading = el('div', 'dl-inline'); heading.append(el('h2', '', scope === 'day' ? 'Задачи дня' : 'Планы и задачи'));
     const search = input(this.query, 'search', 'Найти задачу'); search.dataset.focus = 'search'; search.setAttribute('aria-label', 'Найти задачу'); search.classList.add('dl-search'); search.oninput = () => { this.query = search.value; this.render(); };
     taskHeader.append(heading, search); taskColumn.append(taskHeader);
-    const tabs = el('div', 'dl-tabs'); for (const [key, label] of [['all', 'Все'], ['open', 'В работе'], ['done', 'Готово']] as const) { const tab = button(label, () => { this.filter = key; this.render(); }, `dl-tab ${this.filter === key ? 'is-active' : ''}`); tab.setAttribute('aria-pressed', String(this.filter === key)); tabs.append(tab); } taskColumn.append(tabs, this.quickAdd());
+    const toolbar = el('div', 'dl-task-toolbar');
+    const tabs = el('div', 'dl-tabs'); for (const [key, label] of [['all', 'Все'], ['open', 'В работе'], ['done', 'Готово']] as const) { const tab = button(label, () => { this.filter = key; this.render(); }, `dl-tab ${this.filter === key ? 'is-active' : ''}`); tab.setAttribute('aria-pressed', String(this.filter === key)); tabs.append(tab); } toolbar.append(tabs);
+    if (scope === 'day' && this.filter === 'all') {
+      const byStatus = this.store.settings.dayTaskSort === 'status';
+      const sort = button(byStatus ? 'Сортировать по созданию' : 'Группировать по статусу', () => {
+        this.store.settings.dayTaskSort = byStatus ? 'created' : 'status';
+        this.render();
+        void this.host.persistSettings?.().catch(() => this.host.notify('Не удалось сохранить порядок задач.'));
+      }, 'dl-button dl-button-quiet dl-task-sort');
+      sort.dataset.focus = 'day-sort';
+      sort.title = byStatus ? 'Сейчас: невыполненные на день, незавершённые с прошлых дней, выполненные' : 'Сейчас: порядок создания внутри задач дня и незавершённых с прошлых дней';
+      toolbar.append(sort);
+    }
+    taskColumn.append(toolbar, this.quickAdd());
     const visible = tasks.filter(t => (this.filter === 'all' ? this.store.settings.showCompleted || t.status === 'open' : t.status === this.filter) && `${t.title} ${t.description} ${t.labels.map(label => label.name).join(' ')}`.toLocaleLowerCase().includes(this.query.toLocaleLowerCase()));
     if (!visible.length) taskColumn.append(this.empty(this.query ? 'Задачи не найдены' : 'Нет задач', this.query ? 'Измените поисковый запрос.' : 'Добавьте задачу в поле выше.'));
     else {
       const carried = visible.filter(task => carriedTask(task, scope, this.selected, dateKey()));
       const planned = visible.filter(task => !carriedTask(task, scope, this.selected, dateKey()));
-      const appendList = (items: Task[]) => {
+      const groupedDay = scope === 'day' && this.filter === 'all' && this.store.settings.dayTaskSort === 'status';
+      const appendList = (items: Task[], label = 'Задачи') => {
         if (!items.length) return;
-        const list = el('div', 'dl-task-list'); list.setAttribute('aria-label', 'Задачи'); items.forEach(task => list.append(this.taskRow(task, scope !== 'day'))); taskColumn.append(list);
+        const list = el('div', 'dl-task-list'); list.setAttribute('aria-label', label); items.forEach(task => list.append(this.taskRow(task, scope !== 'day'))); taskColumn.append(list);
       };
-      appendList(planned);
+      appendList(groupedDay ? planned.filter(task => task.status === 'open') : planned);
       if (carried.length) {
         const banner = el('div', 'dl-overdue-banner'); banner.append(el('strong', '', `${scope === 'day' ? 'Незавершённые с прошлых дней' : 'Незавершённые из прошлых периодов'} · ${carried.length}`)); taskColumn.append(banner);
         appendList(carried);
+      }
+      if (groupedDay) {
+        const done = planned.filter(task => task.status === 'done');
+        if (done.length) {
+          taskColumn.append(el('h3', 'dl-task-group-heading', `Выполненные · ${done.length}`));
+          appendList(done, 'Выполненные задачи');
+        }
       }
     }
     const rail = el('aside', 'dl-context-rail'); rail.append(scope === 'day' ? this.dailyHabits(habits) : this.habitAnalysis(scope));
