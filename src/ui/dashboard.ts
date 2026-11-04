@@ -167,9 +167,9 @@ export class Dashboard {
         this.store.settings.dayTaskSort = byStatus ? 'created' : 'status';
         this.render();
         void this.host.persistSettings?.().catch(() => this.host.notify('Не удалось сохранить порядок задач.'));
-      }, 'dl-button dl-button-quiet dl-task-sort');
+      }, 'dl-icon-button dl-task-sort', byStatus ? 'sort' : 'group');
       sort.dataset.focus = 'day-sort';
-      sort.title = byStatus ? 'Сейчас: невыполненные на день, незавершённые с прошлых дней, выполненные' : 'Сейчас: порядок создания внутри задач дня и незавершённых с прошлых дней';
+      sort.title = byStatus ? 'Сортировать по созданию' : 'Группировать по статусу';
       toolbar.append(sort);
     }
     taskColumn.append(toolbar, this.quickAdd());

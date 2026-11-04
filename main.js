@@ -56,10 +56,10 @@ var init_manifest = __esm({
     manifest_default = {
       id: "smart-todos",
       name: "Smart Todo",
-      version: "1.0.8",
+      version: "1.0.9",
       minAppVersion: "1.8.0",
       description: "\u041A\u0430\u043B\u0435\u043D\u0434\u0430\u0440\u044C, \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0437\u0430\u0434\u0430\u0447\u0438, \u043F\u043B\u0430\u043D\u044B, \u0446\u0435\u043B\u0438 \u0438 \u043F\u0440\u0438\u0432\u044B\u0447\u043A\u0438 \u0432 \u043E\u0431\u044B\u0447\u043D\u044B\u0445 Markdown-\u0444\u0430\u0439\u043B\u0430\u0445.",
-      author: "Personal build for Vlad",
+      author: "Vlad Topchu",
       isDesktopOnly: false
     };
   }
@@ -7035,6 +7035,8 @@ var paths = {
   file: "M14 2H5v20h14V7l-5-5Zm0 0v6h5M8 13h8m-8 4h6",
   settings: "M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z",
   search: "m21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0",
+  sort: "M4 4v16m-3-3 3 3 3-3M11 5h10M11 12h7M11 19h4",
+  group: "M3 4h4v4H3zM11 4h10M11 8h6M3 16h4v4H3zM11 16h10M11 20h6",
   dots: "M5 12h.01M12 12h.01M19 12h.01",
   repeat: "m17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4m14-1v3a2 2 0 0 1-2 2H3",
   move: "M5 5h14v14H5zM8 12h8m-3-3 3 3-3 3",
@@ -7381,9 +7383,9 @@ var Dashboard = class {
         this.store.settings.dayTaskSort = byStatus ? "created" : "status";
         this.render();
         void ((_b = (_a = this.host).persistSettings) == null ? void 0 : _b.call(_a).catch(() => this.host.notify("\u041D\u0435 \u0443\u0434\u0430\u043B\u043E\u0441\u044C \u0441\u043E\u0445\u0440\u0430\u043D\u0438\u0442\u044C \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0437\u0430\u0434\u0430\u0447.")));
-      }, "dl-button dl-button-quiet dl-task-sort");
+      }, "dl-icon-button dl-task-sort", byStatus ? "sort" : "group");
       sort.dataset.focus = "day-sort";
-      sort.title = byStatus ? "\u0421\u0435\u0439\u0447\u0430\u0441: \u043D\u0435\u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435 \u043D\u0430 \u0434\u0435\u043D\u044C, \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0435 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439, \u0432\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435" : "\u0421\u0435\u0439\u0447\u0430\u0441: \u043F\u043E\u0440\u044F\u0434\u043E\u043A \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044F \u0432\u043D\u0443\u0442\u0440\u0438 \u0437\u0430\u0434\u0430\u0447 \u0434\u043D\u044F \u0438 \u043D\u0435\u0437\u0430\u0432\u0435\u0440\u0448\u0451\u043D\u043D\u044B\u0445 \u0441 \u043F\u0440\u043E\u0448\u043B\u044B\u0445 \u0434\u043D\u0435\u0439";
+      sort.title = byStatus ? "\u0421\u043E\u0440\u0442\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E \u0441\u043E\u0437\u0434\u0430\u043D\u0438\u044E" : "\u0413\u0440\u0443\u043F\u043F\u0438\u0440\u043E\u0432\u0430\u0442\u044C \u043F\u043E \u0441\u0442\u0430\u0442\u0443\u0441\u0443";
       toolbar.append(sort);
     }
     taskColumn.append(toolbar, this.quickAdd());

@@ -22,6 +22,8 @@ const paths: Record<string, string> = {
   file: 'M14 2H5v20h14V7l-5-5Zm0 0v6h5M8 13h8m-8 4h6',
   settings: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z',
   search: 'm21 21-5-5M18 10a8 8 0 1 1-16 0 8 8 0 0 1 16 0',
+  sort: 'M4 4v16m-3-3 3 3 3-3M11 5h10M11 12h7M11 19h4',
+  group: 'M3 4h4v4H3zM11 4h10M11 8h6M3 16h4v4H3zM11 16h10M11 20h6',
   dots: 'M5 12h.01M12 12h.01M19 12h.01',
   repeat: 'm17 2 4 4-4 4M3 11V8a2 2 0 0 1 2-2h16M7 22l-4-4 4-4m14-1v3a2 2 0 0 1-2 2H3',
   move: 'M5 5h14v14H5zM8 12h8m-3-3 3 3-3 3',
