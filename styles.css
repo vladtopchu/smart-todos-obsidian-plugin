@@ -138,7 +138,7 @@
 .dl-card { padding: 16px; background: var(--dl-surface); border: 1px solid var(--dl-line); border-radius: 4px; }
 .dl-card h2 { font-size: 13px; }
 .dl-card-subtitle { font-size: 10px; color: var(--dl-muted); line-height: 1.7; margin-top: 7px !important; }
-.dl-habit-daily { width: 100%; background: transparent !important; border: 0; display: flex; align-items: center; gap: 9px; text-align: left; padding: 10px 0; font-size: 11px !important; }
+.dl-habit-daily { width: 100%; background: transparent !important; border: 0; display: flex; justify-content: flex-start; align-items: flex-start; gap: 9px; text-align: left; padding: 10px 0 0; font-size: 11px !important; white-space: normal; overflow-wrap: anywhere;}
 .dl-habit-daily:first-of-type { margin-top: 12px; }
 .dl-habit-check { display: grid; place-items: center; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--dl-muted); flex: 0 0 12px; }
 .dl-habit-daily.is-done .dl-habit-check { color: var(--dl-on-accent); border-color: var(--dl-accent); background: var(--dl-accent); }
@@ -148,8 +148,8 @@
 .dl-add-habit svg { width: 14px; height: 14px; }
 .dl-focus-card { background: var(--dl-surface); }
 .dl-focus-card > p { font-size: 11px; line-height: 1.8; color: var(--dl-muted); margin-top: 9px; }
-.dl-focus-task { display: flex; align-items: flex-start; text-align: left; gap: 7px; background: transparent !important; border: 0; padding: 10px 0 0; font-size: 11px !important; }
-.dl-focus-task svg { width: 13px; height: 13px; margin-top: 2px; }
+.dl-focus-task { display: flex; align-items: flex-start; text-align: left; gap: 7px; background: transparent !important; border: 0; padding: 10px 0 0; font-size: 11px !important; min-width: 0; max-width: 100%; box-sizing: border-box; white-space: normal; overflow-wrap: anywhere;}
+.dl-focus-task svg { width: 13px; height: 13px; margin-top: 2px; flex-shrink: 0;}
 .dl-text-button { display: flex; align-items: center; gap: 7px; background: transparent !important; padding: 0; border: 0; font-size: 11px !important; color: var(--dl-accent) !important; }
 .dl-text-button svg { width: 14px; height: 14px; }
 .dl-focus-card > .dl-text-button { margin-top: 20px !important; flex-direction: row-reverse; justify-content: flex-end; }
@@ -303,6 +303,7 @@
   .dl-app input[type=checkbox].dl-checkbox { width: 20px; height: 20px; }
   
   .dl-habit-daily { min-height: 44px; }
+  .dl-habit-check { flex-shrink: 0; margin-top: 2px; }
   .dl-heatmap { gap: 4px; }
   .dl-heat-cell { height: 15px !important; min-height: 15px; }
 }
